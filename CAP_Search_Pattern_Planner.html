@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CAP Search Pattern Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+body { margin:0; display:flex; height:100vh; font-family:Arial,sans-serif; }
+#controls { width:320px; padding:10px; background:#f2f2f2; overflow:auto; }
+#map { flex:1; }
+input, select, button { width:100%; margin:4px 0 10px 0; }
+</style>
+</head>
+<body>
+<div id="controls">
+<h3>CAP Search Pattern Planner</h3>
+
+<label>Pattern</label>
+<select id="pattern">
+<option value="parallel">Parallel Track</option>
+<option value="square">Expanding Square</option>
+</select>
+
+<label>Heading (degrees)</label>
+<input id="heading" type="number" value="90">
+
+<label>Track Spacing (NM)</label>
+<input id="spacing" type="number" value="1">
+
+<label>Legs</label>
+<input id="legs" type="number" value="8">
+
+<label>Side</label>
+<select id="side">
+<option value="right">Right</option>
+<option value="left">Left</option>
+</select>
+
+<button onclick="generatePattern()">Generate Pattern</button>
+
+<hr>
+<label>Saved Pattern Name</label>
+<input id="saveName" placeholder="Mission Alpha">
+
+<button onclick="savePattern()">Save Pattern</button>
+
+<label>Load Saved Pattern</label>
+<select id="savedPatterns"></select>
+<button onclick="loadPattern()">Load Pattern</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([34.2,-79.0],8);
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+ attribution:'OpenStreetMap'
+}).addTo(map);
+
+let startPoint = null;
+let startMarker = null;
+let patternLayer = null;
+let currentPoints = [];
+
+map.on('click', e => {
+ startPoint = e.latlng;
+
+ if(startMarker) map.removeLayer(startMarker);
+ startMarker = L.marker(startPoint).addTo(map);
+});
+
+function destinationPoint(lat, lon, bearing, distanceNM){
+ const R=3440.065;
+ const brng=bearing*Math.PI/180;
+ const d=distanceNM/R;
+ const lat1=lat*Math.PI/180;
+ const lon1=lon*Math.PI/180;
+
+ const lat2=Math.asin(
+   Math.sin(lat1)*Math.cos(d)+
+   Math.cos(lat1)*Math.sin(d)*Math.cos(brng)
+ );
+
+ const lon2=lon1+Math.atan2(
+   Math.sin(brng)*Math.sin(d)*Math.cos(lat1),
+   Math.cos(d)-Math.sin(lat1)*Math.sin(lat2)
+ );
+
+ return [lat2*180/Math.PI, lon2*180/Math.PI];
+}
+
+function generateParallelTrack(lat, lon, heading, spacing, legs, side){
+ let pts=[[lat,lon]];
+ let clat=lat, clon=lon;
+ const legLength=5;
+
+ for(let i=0;i<legs;i++){
+   let p=destinationPoint(clat,clon,heading,legLength);
+   pts.push(p);
+   clat=p[0]; clon=p[1];
+
+   let offset=(side==="right") ? heading+90 : heading-90;
+
+   p=destinationPoint(clat,clon,offset,spacing);
+   pts.push(p);
+   clat=p[0]; clon=p[1];
+
+   heading+=180;
+ }
+ return pts;
+}
+
+function generateExpandingSquare(lat, lon, heading, spacing, legs){
+ let pts=[[lat,lon]];
+ let clat=lat, clon=lon;
+ let len=spacing;
+
+ for(let i=0;i<legs;i++){
+   let p=destinationPoint(clat,clon,heading,len);
+   pts.push(p);
+   clat=p[0]; clon=p[1];
+
+   heading+=90;
+
+   if(i%2===1) len+=spacing;
+ }
+ return pts;
+}
+
+function generatePattern(){
+ if(!startPoint){
+   alert("Click the map to select a start point.");
+   return;
+ }
+
+ const pattern=document.getElementById("pattern").value;
+ const heading=Number(document.getElementById("heading").value);
+ const spacing=Number(document.getElementById("spacing").value);
+ const legs=Number(document.getElementById("legs").value);
+ const side=document.getElementById("side").value;
+
+ if(pattern==="parallel"){
+   currentPoints=generateParallelTrack(
+     startPoint.lat,startPoint.lng,heading,spacing,legs,side
+   );
+ } else {
+   currentPoints=generateExpandingSquare(
+     startPoint.lat,startPoint.lng,heading,spacing,legs
+   );
+ }
+
+ if(patternLayer) map.removeLayer(patternLayer);
+
+ patternLayer=L.polyline(currentPoints,{weight:3})
+     .addTo(map);
+
+ map.fitBounds(patternLayer.getBounds());
+}
+
+function savePattern(){
+ const name=document.getElementById("saveName").value.trim();
+ if(!name || currentPoints.length===0){
+   alert("Generate a pattern and enter a name.");
+   return;
+ }
+
+ const data={
+   points: currentPoints,
+   startPoint: startPoint
+ };
+
+ localStorage.setItem("CAPPATTERN_"+name, JSON.stringify(data));
+ refreshSavedPatterns();
+ alert("Pattern saved.");
+}
+
+function refreshSavedPatterns(){
+ const sel=document.getElementById("savedPatterns");
+ sel.innerHTML="";
+
+ Object.keys(localStorage)
+   .filter(k=>k.startsWith("CAPPATTERN_"))
+   .sort()
+   .forEach(k=>{
+      const opt=document.createElement("option");
+      opt.value=k;
+      opt.textContent=k.replace("CAPPATTERN_","");
+      sel.appendChild(opt);
+   });
+}
+
+function loadPattern(){
+ const key=document.getElementById("savedPatterns").value;
+ if(!key) return;
+
+ const data=JSON.parse(localStorage.getItem(key));
+
+ currentPoints=data.points;
+ startPoint=data.startPoint;
+
+ if(startMarker) map.removeLayer(startMarker);
+ startMarker=L.marker(startPoint).addTo(map);
+
+ if(patternLayer) map.removeLayer(patternLayer);
+
+ patternLayer=L.polyline(currentPoints,{weight:3})
+     .addTo(map);
+
+ map.fitBounds(patternLayer.getBounds());
+}
+
+refreshSavedPatterns();
+</script>
+</body>
+</html>
