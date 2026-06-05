@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CAP Search Pattern Planner v2</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+body{margin:0;display:flex;height:100vh;font-family:Arial}
+#controls{width:340px;padding:10px;background:#f3f3f3;overflow:auto}
+#map{flex:1}
+input,select,button{width:100%;margin:4px 0 10px}
+</style>
+</head>
+<body>
+<div id="controls">
+<h3>CAP Search Pattern Planner</h3>
+
+<select id="pattern">
+<option value="parallel">Parallel Track</option>
+<option value="creeping">Creeping Line</option>
+<option value="square">Expanding Square</option>
+<option value="sector">Sector Search</option>
+<option value="trackline">Track Line Search</option>
+<option value="route">Route Search</option>
+</select>
+
+<label>Heading</label>
+<input id="heading" type="number" value="90">
+
+<label>Spacing (NM)</label>
+<input id="spacing" type="number" value="1">
+
+<label>Legs</label>
+<input id="legs" type="number" value="8">
+
+<label>Side</label>
+<select id="side">
+<option value="right">Right</option>
+<option value="left">Left</option>
+</select>
+
+<label>Scanners</label>
+<select id="scanners">
+<option value="1">1 Scanner</option>
+<option value="2">2 Scanners</option>
+</select>
+
+<button onclick="generatePattern()">Generate</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([34.2,-79.0],8);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let startPoint=null,startMarker=null,line=null;
+
+map.on('click',e=>{
+ startPoint=e.latlng;
+ if(startMarker) map.removeLayer(startMarker);
+ startMarker=L.marker(startPoint).addTo(map);
+});
+
+function dest(lat,lon,bearing,nm){
+ const R=3440.065;
+ let b=bearing*Math.PI/180,d=nm/R;
+ let la1=lat*Math.PI/180,lo1=lon*Math.PI/180;
+ let la2=Math.asin(Math.sin(la1)*Math.cos(d)+Math.cos(la1)*Math.sin(d)*Math.cos(b));
+ let lo2=lo1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la1),Math.cos(d)-Math.sin(la1)*Math.sin(la2));
+ return [la2*180/Math.PI,lo2*180/Math.PI];
+}
+
+function parallelTrack(lat,lon,heading,legs,side,scanners){
+ let pts=[[lat,lon]];
+ let clat=lat,clon=lon;
+ let offsetDist=scanners===1?0.5:1.0; // CAP concept described by user
+ let legLen=5;
+
+ for(let i=0;i<legs;i++){
+   let p=dest(clat,clon,heading,legLen);
+   pts.push(p);
+
+   let turn=(side==="right")?heading+90:heading-90;
+   p=dest(p[0],p[1],turn,offsetDist);
+   pts.push(p);
+
+   heading+=180;
+
+   p=dest(p[0],p[1],heading,legLen);
+   pts.push(p);
+
+   clat=p[0];
+   clon=p[1];
+
+   turn=(side==="right")?heading-90:heading+90;
+   p=dest(clat,clon,turn,offsetDist);
+   pts.push(p);
+
+   clat=p[0];
+   clon=p[1];
+ }
+ return pts;
+}
+
+function creepingLine(lat,lon,heading,legs,spacing){
+ let pts=[[lat,lon]];
+ let clat=lat,clon=lon;
+ for(let i=0;i<legs;i++){
+   let p=dest(clat,clon,heading,5);
+   pts.push(p);
+   p=dest(p[0],p[1],heading+90,spacing);
+   pts.push(p);
+   clat=p[0]; clon=p[1];
+   heading+=180;
+ }
+ return pts;
+}
+
+function expandingSquare(lat,lon,heading,spacing,legs){
+ let pts=[[lat,lon]], len=spacing;
+ let clat=lat,clon=lon;
+ for(let i=0;i<legs;i++){
+   let p=dest(clat,clon,heading,len);
+   pts.push(p);
+   clat=p[0]; clon=p[1];
+   heading+=90;
+   if(i%2===1) len+=spacing;
+ }
+ return pts;
+}
+
+function sector(lat,lon,heading){
+ let pts=[[lat,lon]];
+ for(let i=0;i<6;i++){
+   let p=dest(lat,lon,heading+(i*60),3);
+   pts.push(p);
+   pts.push([lat,lon]);
+ }
+ return pts;
+}
+
+function trackLine(lat,lon,heading){
+ return [[lat,lon],dest(lat,lon,heading,20)];
+}
+
+function generatePattern(){
+ if(!startPoint){ alert("Click map first."); return; }
+
+ let pattern=document.getElementById("pattern").value;
+ let heading=Number(document.getElementById("heading").value);
+ let spacing=Number(document.getElementById("spacing").value);
+ let legs=Number(document.getElementById("legs").value);
+ let side=document.getElementById("side").value;
+ let scanners=Number(document.getElementById("scanners").value);
+
+ let pts=[];
+
+ if(pattern==="parallel") pts=parallelTrack(startPoint.lat,startPoint.lng,heading,legs,side,scanners);
+ if(pattern==="creeping") pts=creepingLine(startPoint.lat,startPoint.lng,heading,legs,spacing);
+ if(pattern==="square") pts=expandingSquare(startPoint.lat,startPoint.lng,heading,spacing,legs);
+ if(pattern==="sector") pts=sector(startPoint.lat,startPoint.lng,heading);
+ if(pattern==="trackline") pts=trackLine(startPoint.lat,startPoint.lng,heading);
+ if(pattern==="route") pts=trackLine(startPoint.lat,startPoint.lng,heading);
+
+ if(line) map.removeLayer(line);
+ line=L.polyline(pts,{weight:3}).addTo(map);
+ map.fitBounds(line.getBounds());
+}
+</script>
+</body>
+</html>
