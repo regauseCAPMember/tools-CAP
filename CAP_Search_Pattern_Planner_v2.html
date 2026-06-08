@@ -2,172 +2,493 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>CAP Search Pattern Planner v2</title>
+<title>CAP Search Pattern Planner Rebuilt</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <style>
-body{margin:0;display:flex;height:100vh;font-family:Arial}
-#controls{width:340px;padding:10px;background:#f3f3f3;overflow:auto}
-#map{flex:1}
-input,select,button{width:100%;margin:4px 0 10px}
+body {
+  margin:0;
+  display:flex;
+  height:100vh;
+  font-family:Arial, sans-serif;
+}
+#controls {
+  width:390px;
+  padding:10px;
+  background:#f3f3f3;
+  overflow:auto;
+  box-sizing:border-box;
+}
+#map { flex:1; }
+input, select, button {
+  width:100%;
+  margin:4px 0 10px;
+  box-sizing:border-box;
+}
+label { font-weight:bold; font-size:13px; }
+.small { font-size:12px; color:#444; margin-bottom:10px; }
+hr { margin:12px 0; }
 </style>
 </head>
 <body>
+
 <div id="controls">
 <h3>CAP Search Pattern Planner</h3>
 
+<div class="small">
+Click the map to set the center/datum of the search area.
+</div>
+
+<label>Pattern</label>
 <select id="pattern">
-<option value="parallel">Parallel Track</option>
-<option value="creeping">Creeping Line</option>
-<option value="square">Expanding Square</option>
-<option value="sector">Sector Search</option>
-<option value="trackline">Track Line Search</option>
-<option value="route">Route Search</option>
+  <option value="parallel">Parallel Track</option>
+  <option value="creeping">Creeping Line</option>
+  <option value="square">Expanding Square</option>
+  <option value="sector">Sector Search</option>
+  <option value="trackline">Track Line Search</option>
+  <option value="route">Route Search</option>
 </select>
 
-<label>Heading</label>
-<input id="heading" type="number" value="90">
+<hr>
 
-<label>Spacing (NM)</label>
-<input id="spacing" type="number" value="1">
+<label>Search Area Length, NM - along expected path</label>
+<input id="areaLength" type="number" value="8" step="0.1">
 
-<label>Legs</label>
-<input id="legs" type="number" value="8">
+<label>Search Area Width, NM - across expected path</label>
+<input id="areaWidth" type="number" value="4" step="0.1">
 
-<label>Side</label>
-<select id="side">
-<option value="right">Right</option>
-<option value="left">Left</option>
+<label>Expected Path / Rectangle Heading</label>
+<input id="areaHeading" type="number" value="90" step="1">
+
+<label>Approach Side</label>
+<select id="approachSide">
+  <option value="southwest">Southwest / lower-left corner</option>
+  <option value="southeast">Southeast / lower-right corner</option>
+  <option value="northwest">Northwest / upper-left corner</option>
+  <option value="northeast">Northeast / upper-right corner</option>
 </select>
 
-<label>Scanners</label>
+<hr>
+
+<label>Single Scanner Side</label>
+<select id="singleScannerSide">
+  <option value="left">Left side</option>
+  <option value="right">Right side</option>
+</select>
+
+<label>Number of Scanners</label>
 <select id="scanners">
-<option value="1">1 Scanner</option>
-<option value="2">2 Scanners</option>
+  <option value="1">1 Scanner</option>
+  <option value="2">2 Scanners</option>
 </select>
 
-<button onclick="generatePattern()">Generate</button>
+<label>Visible Scan Distance per Scanner Side, NM</label>
+<input id="visibleRange" type="number" value="0.5" step="0.1">
+
+<label>Optional Override Track Spacing, NM</label>
+<input id="spacingOverride" type="number" value="" step="0.1" placeholder="blank = auto">
+
+<hr>
+
+<label>Turn / Maneuver Buffer Outside Rectangle, NM</label>
+<input id="turnBuffer" type="number" value="0.3" step="0.1">
+
+<label>Expanding Square / Sector Max Radius, NM</label>
+<input id="maxRadius" type="number" value="3" step="0.1">
+
+<label>Expanding Square Initial Heading</label>
+<input id="initialHeading" type="number" value="90" step="1">
+
+<button onclick="generatePattern()">Generate Pattern</button>
+<button onclick="clearMap()">Clear</button>
+
+<div id="info" class="small"></div>
 </div>
 
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script>
-const map=L.map('map').setView([34.2,-79.0],8);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+const map = L.map('map').setView([34.2, -79.0], 8);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
 
-let startPoint=null,startMarker=null,line=null;
+let centerPoint = null;
+let centerMarker = null;
+let searchAreaLayer = null;
+let patternLayer = null;
+let scanLayer = null;
 
-map.on('click',e=>{
- startPoint=e.latlng;
- if(startMarker) map.removeLayer(startMarker);
- startMarker=L.marker(startPoint).addTo(map);
+map.on('click', e => {
+  centerPoint = e.latlng;
+  if (centerMarker) map.removeLayer(centerMarker);
+  centerMarker = L.marker(centerPoint).addTo(map).bindPopup("Search Area Center / Datum").openPopup();
 });
 
-function dest(lat,lon,bearing,nm){
- const R=3440.065;
- let b=bearing*Math.PI/180,d=nm/R;
- let la1=lat*Math.PI/180,lo1=lon*Math.PI/180;
- let la2=Math.asin(Math.sin(la1)*Math.cos(d)+Math.cos(la1)*Math.sin(d)*Math.cos(b));
- let lo2=lo1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la1),Math.cos(d)-Math.sin(la1)*Math.sin(la2));
- return [la2*180/Math.PI,lo2*180/Math.PI];
+function degToRad(d) { return d * Math.PI / 180; }
+function radToDeg(r) { return r * 180 / Math.PI; }
+function norm360(d) { return ((d % 360) + 360) % 360; }
+
+function dest(lat, lon, bearingDeg, nm) {
+  const R = 3440.065;
+  const b = degToRad(bearingDeg);
+  const d = nm / R;
+  const la1 = degToRad(lat);
+  const lo1 = degToRad(lon);
+
+  const la2 = Math.asin(
+    Math.sin(la1) * Math.cos(d) +
+    Math.cos(la1) * Math.sin(d) * Math.cos(b)
+  );
+
+  const lo2 = lo1 + Math.atan2(
+    Math.sin(b) * Math.sin(d) * Math.cos(la1),
+    Math.cos(d) - Math.sin(la1) * Math.sin(la2)
+  );
+
+  return [radToDeg(la2), radToDeg(lo2)];
 }
 
-function parallelTrack(lat,lon,heading,legs,side,scanners){
- let pts=[[lat,lon]];
- let clat=lat,clon=lon;
- let offsetDist=scanners===1?0.5:1.0; // CAP concept described by user
- let legLen=5;
-
- for(let i=0;i<legs;i++){
-   let p=dest(clat,clon,heading,legLen);
-   pts.push(p);
-
-   let turn=(side==="right")?heading+90:heading-90;
-   p=dest(p[0],p[1],turn,offsetDist);
-   pts.push(p);
-
-   heading+=180;
-
-   p=dest(p[0],p[1],heading,legLen);
-   pts.push(p);
-
-   clat=p[0];
-   clon=p[1];
-
-   turn=(side==="right")?heading-90:heading+90;
-   p=dest(clat,clon,turn,offsetDist);
-   pts.push(p);
-
-   clat=p[0];
-   clon=p[1];
- }
- return pts;
+function offsetFromCenter(center, alongNm, acrossNm, headingDeg) {
+  let p = dest(center.lat, center.lng, headingDeg, alongNm);
+  p = dest(p[0], p[1], headingDeg + 90, acrossNm);
+  return p;
 }
 
-function creepingLine(lat,lon,heading,legs,spacing){
- let pts=[[lat,lon]];
- let clat=lat,clon=lon;
- for(let i=0;i<legs;i++){
-   let p=dest(clat,clon,heading,5);
-   pts.push(p);
-   p=dest(p[0],p[1],heading+90,spacing);
-   pts.push(p);
-   clat=p[0]; clon=p[1];
-   heading+=180;
- }
- return pts;
+function buildSearchRectangle(center, lengthNm, widthNm, headingDeg) {
+  const hL = lengthNm / 2;
+  const hW = widthNm / 2;
+
+  const sw = offsetFromCenter(center, -hL, -hW, headingDeg);
+  const se = offsetFromCenter(center,  hL, -hW, headingDeg);
+  const ne = offsetFromCenter(center,  hL,  hW, headingDeg);
+  const nw = offsetFromCenter(center, -hL,  hW, headingDeg);
+
+  return { sw, se, ne, nw, ring: [sw, se, ne, nw, sw] };
 }
 
-function expandingSquare(lat,lon,heading,spacing,legs){
- let pts=[[lat,lon]], len=spacing;
- let clat=lat,clon=lon;
- for(let i=0;i<legs;i++){
-   let p=dest(clat,clon,heading,len);
-   pts.push(p);
-   clat=p[0]; clon=p[1];
-   heading+=90;
-   if(i%2===1) len+=spacing;
- }
- return pts;
+function getAutoSpacing(scannerCount, visibleRangeNm) {
+  if (scannerCount === 1) return visibleRangeNm;
+  return visibleRangeNm * 2;
 }
 
-function sector(lat,lon,heading){
- let pts=[[lat,lon]];
- for(let i=0;i<6;i++){
-   let p=dest(lat,lon,heading+(i*60),3);
-   pts.push(p);
-   pts.push([lat,lon]);
- }
- return pts;
+function chooseStartOffset(lengthNm, widthNm, approachSide) {
+  const hL = lengthNm / 2;
+  const hW = widthNm / 2;
+
+  const map = {
+    southwest: { along: -hL, across: -hW },
+    southeast: { along:  hL, across: -hW },
+    northwest: { along: -hL, across:  hW },
+    northeast: { along:  hL, across:  hW }
+  };
+  return map[approachSide];
 }
 
-function trackLine(lat,lon,heading){
- return [[lat,lon],dest(lat,lon,heading,20)];
+function addOutsideBuffer(point, headingDeg, bufferNm) {
+  return dest(point[0], point[1], headingDeg, bufferNm);
 }
 
-function generatePattern(){
- if(!startPoint){ alert("Click map first."); return; }
+function generateParallelTrack(center, lengthNm, widthNm, headingDeg, spacingNm, approachSide, turnBufferNm) {
+  /*
+    Parallel Track:
+    - Search legs are parallel to the expected path / rectangle heading.
+    - Spacing steps across the rectangle width.
+    - Turns and spacing connectors occur outside the rectangle.
+  */
 
- let pattern=document.getElementById("pattern").value;
- let heading=Number(document.getElementById("heading").value);
- let spacing=Number(document.getElementById("spacing").value);
- let legs=Number(document.getElementById("legs").value);
- let side=document.getElementById("side").value;
- let scanners=Number(document.getElementById("scanners").value);
+  const pts = [];
+  const hL = lengthNm / 2;
+  const hW = widthNm / 2;
 
- let pts=[];
+  const start = chooseStartOffset(lengthNm, widthNm, approachSide);
+  let across = start.across;
+  let direction = start.along < 0 ? 1 : -1;
 
- if(pattern==="parallel") pts=parallelTrack(startPoint.lat,startPoint.lng,heading,legs,side,scanners);
- if(pattern==="creeping") pts=creepingLine(startPoint.lat,startPoint.lng,heading,legs,spacing);
- if(pattern==="square") pts=expandingSquare(startPoint.lat,startPoint.lng,heading,spacing,legs);
- if(pattern==="sector") pts=sector(startPoint.lat,startPoint.lng,heading);
- if(pattern==="trackline") pts=trackLine(startPoint.lat,startPoint.lng,heading);
- if(pattern==="route") pts=trackLine(startPoint.lat,startPoint.lng,heading);
+  while (Math.abs(across) <= hW + 0.0001) {
+    const entryAlong = direction === 1 ? -hL : hL;
+    const exitAlong  = direction === 1 ?  hL : -hL;
+    const legHeading = direction === 1 ? headingDeg : headingDeg + 180;
 
- if(line) map.removeLayer(line);
- line=L.polyline(pts,{weight:3}).addTo(map);
- map.fitBounds(line.getBounds());
+    const entry = offsetFromCenter(center, entryAlong, across, headingDeg);
+    const exit  = offsetFromCenter(center, exitAlong, across, headingDeg);
+
+    const outsideEntry = dest(entry[0], entry[1], norm360(legHeading + 180), turnBufferNm);
+    const outsideExit  = dest(exit[0], exit[1], legHeading, turnBufferNm);
+
+    if (pts.length === 0) pts.push(outsideEntry);
+    pts.push(entry);
+    pts.push(exit);
+    pts.push(outsideExit);
+
+    const nextAcross = start.across < 0 ? across + spacingNm : across - spacingNm;
+    if (Math.abs(nextAcross) > hW + 0.0001) break;
+
+    const nextEntryAlong = exitAlong;
+    const nextEntry = offsetFromCenter(center, nextEntryAlong, nextAcross, headingDeg);
+    const nextLegHeading = norm360(legHeading + 180);
+    const nextOutsideEntry = dest(nextEntry[0], nextEntry[1], norm360(nextLegHeading + 180), turnBufferNm);
+
+    pts.push(nextOutsideEntry);
+
+    across = nextAcross;
+    direction *= -1;
+  }
+
+  return pts;
+}
+
+function generateCreepingLine(center, lengthNm, widthNm, headingDeg, spacingNm, approachSide, turnBufferNm) {
+  /*
+    Creeping Line:
+    - Search legs are perpendicular to the expected path / rectangle heading.
+    - Spacing steps along the rectangle length.
+  */
+
+  const pts = [];
+  const hL = lengthNm / 2;
+  const hW = widthNm / 2;
+
+  const start = chooseStartOffset(lengthNm, widthNm, approachSide);
+  let along = start.along;
+  let direction = start.across < 0 ? 1 : -1;
+
+  while (Math.abs(along) <= hL + 0.0001) {
+    const entryAcross = direction === 1 ? -hW : hW;
+    const exitAcross  = direction === 1 ?  hW : -hW;
+    const legHeading = direction === 1 ? headingDeg + 90 : headingDeg - 90;
+
+    const entry = offsetFromCenter(center, along, entryAcross, headingDeg);
+    const exit  = offsetFromCenter(center, along, exitAcross, headingDeg);
+
+    const outsideEntry = dest(entry[0], entry[1], norm360(legHeading + 180), turnBufferNm);
+    const outsideExit  = dest(exit[0], exit[1], legHeading, turnBufferNm);
+
+    if (pts.length === 0) pts.push(outsideEntry);
+    pts.push(entry);
+    pts.push(exit);
+    pts.push(outsideExit);
+
+    const nextAlong = start.along < 0 ? along + spacingNm : along - spacingNm;
+    if (Math.abs(nextAlong) > hL + 0.0001) break;
+
+    const nextEntryAcross = exitAcross;
+    const nextEntry = offsetFromCenter(center, nextAlong, nextEntryAcross, headingDeg);
+    const nextLegHeading = norm360(legHeading + 180);
+    const nextOutsideEntry = dest(nextEntry[0], nextEntry[1], norm360(nextLegHeading + 180), turnBufferNm);
+
+    pts.push(nextOutsideEntry);
+
+    along = nextAlong;
+    direction *= -1;
+  }
+
+  return pts;
+}
+
+function generateExpandingSquare(center, headingDeg, spacingNm, maxRadiusNm) {
+  /*
+    Expanding Square:
+    - Starts at datum / center.
+    - Legs: S, S, 2S, 2S, 3S, 3S...
+    - This version does not mathematically clip to the rectangle yet.
+    - It generates until the leg length exceeds max radius.
+  */
+
+  const pts = [[center.lat, center.lng]];
+  let current = [center.lat, center.lng];
+  let legLength = spacingNm;
+  let heading = headingDeg;
+  let legCounter = 0;
+
+  while (legLength <= maxRadiusNm * 2) {
+    const next = dest(current[0], current[1], heading, legLength);
+    pts.push(next);
+    current = next;
+
+    heading = norm360(heading + 90);
+    legCounter++;
+
+    if (legCounter % 2 === 0) {
+      legLength += spacingNm;
+    }
+
+    const distFromCenter = approximateDistanceNm(center.lat, center.lng, current[0], current[1]);
+    if (distFromCenter > maxRadiusNm * 1.5) break;
+  }
+
+  return pts;
+}
+
+function generateSectorSearch(center, headingDeg, radiusNm) {
+  /*
+    Simplified Sector Search:
+    - Starts at datum.
+    - Flies radial legs out and back.
+    - Rotates by 60 degrees.
+  */
+
+  const pts = [[center.lat, center.lng]];
+
+  for (let i = 0; i < 6; i++) {
+    const outboundHeading = norm360(headingDeg + i * 60);
+    const outer = dest(center.lat, center.lng, outboundHeading, radiusNm);
+    pts.push(outer);
+    pts.push([center.lat, center.lng]);
+  }
+
+  return pts;
+}
+
+function generateTrackLine(center, lengthNm, headingDeg, visibleRangeNm, scannerCount) {
+  /*
+    Track Line / Route Search:
+    - Main route line with lateral scan corridor.
+  */
+  const start = dest(center.lat, center.lng, headingDeg + 180, lengthNm / 2);
+  const end = dest(center.lat, center.lng, headingDeg, lengthNm / 2);
+  return [start, end];
+}
+
+function approximateDistanceNm(lat1, lon1, lat2, lon2) {
+  const R = 3440.065;
+  const dLat = degToRad(lat2 - lat1);
+  const dLon = degToRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(degToRad(lat1)) * Math.cos(degToRad(lat2)) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function drawScanCorridorForLine(points, spacingNm) {
+  /*
+    Visual aid only:
+    Leaflet does not natively buffer geodesic polylines in NM.
+    For now, this draws a simple centerline pattern only.
+  */
+}
+
+function clearMap() {
+  if (searchAreaLayer) map.removeLayer(searchAreaLayer);
+  if (patternLayer) map.removeLayer(patternLayer);
+  if (scanLayer) map.removeLayer(scanLayer);
+  if (centerMarker) map.removeLayer(centerMarker);
+
+  searchAreaLayer = null;
+  patternLayer = null;
+  scanLayer = null;
+  centerMarker = null;
+  centerPoint = null;
+
+  document.getElementById("info").innerHTML = "";
+}
+
+function generatePattern() {
+  if (!centerPoint) {
+    alert("Click the map to set the search area center / datum first.");
+    return;
+  }
+
+  const pattern = document.getElementById("pattern").value;
+  const areaLength = Number(document.getElementById("areaLength").value);
+  const areaWidth = Number(document.getElementById("areaWidth").value);
+  const areaHeading = norm360(Number(document.getElementById("areaHeading").value));
+  const approachSide = document.getElementById("approachSide").value;
+  const scannerCount = Number(document.getElementById("scanners").value);
+  const visibleRange = Number(document.getElementById("visibleRange").value);
+  const overrideSpacingRaw = document.getElementById("spacingOverride").value;
+  const turnBuffer = Number(document.getElementById("turnBuffer").value);
+  const maxRadius = Number(document.getElementById("maxRadius").value);
+  const initialHeading = norm360(Number(document.getElementById("initialHeading").value));
+
+  const autoSpacing = getAutoSpacing(scannerCount, visibleRange);
+  const spacing = overrideSpacingRaw === "" ? autoSpacing : Number(overrideSpacingRaw);
+
+  const rect = buildSearchRectangle(centerPoint, areaLength, areaWidth, areaHeading);
+
+  if (searchAreaLayer) map.removeLayer(searchAreaLayer);
+  if (patternLayer) map.removeLayer(patternLayer);
+  if (scanLayer) map.removeLayer(scanLayer);
+
+  searchAreaLayer = L.polygon(rect.ring, {
+    color: "blue",
+    weight: 2,
+    fillOpacity: 0.08
+  }).addTo(map).bindPopup("Rotated Search Area Rectangle");
+
+  let pts = [];
+
+  if (pattern === "parallel") {
+    pts = generateParallelTrack(
+      centerPoint,
+      areaLength,
+      areaWidth,
+      areaHeading,
+      spacing,
+      approachSide,
+      turnBuffer
+    );
+  }
+
+  if (pattern === "creeping") {
+    pts = generateCreepingLine(
+      centerPoint,
+      areaLength,
+      areaWidth,
+      areaHeading,
+      spacing,
+      approachSide,
+      turnBuffer
+    );
+  }
+
+  if (pattern === "square") {
+    pts = generateExpandingSquare(
+      centerPoint,
+      initialHeading,
+      spacing,
+      maxRadius
+    );
+  }
+
+  if (pattern === "sector") {
+    pts = generateSectorSearch(
+      centerPoint,
+      initialHeading,
+      maxRadius
+    );
+  }
+
+  if (pattern === "trackline" || pattern === "route") {
+    pts = generateTrackLine(
+      centerPoint,
+      areaLength,
+      areaHeading,
+      visibleRange,
+      scannerCount
+    );
+  }
+
+  patternLayer = L.polyline(pts, {
+    color: "red",
+    weight: 3
+  }).addTo(map).bindPopup("Generated Search Pattern");
+
+  const bounds = L.featureGroup([searchAreaLayer, patternLayer]).getBounds();
+  map.fitBounds(bounds.pad(0.2));
+
+  document.getElementById("info").innerHTML =
+    "<b>Computed Track Spacing:</b> " + spacing.toFixed(2) + " NM<br>" +
+    "<b>Auto Spacing:</b> " + autoSpacing.toFixed(2) + " NM<br>" +
+    "<b>Pattern:</b> " + pattern + "<br>" +
+    "<b>Rectangle Heading:</b> " + areaHeading.toFixed(0) + "°<br>" +
+    "<b>Turn Buffer:</b> " + turnBuffer.toFixed(2) + " NM<br>" +
+    "<b>Note:</b> Red line includes outside-rectangle maneuver segments. Only rectangle-crossing legs should be counted as searched.";
 }
 </script>
+
 </body>
 </html>
