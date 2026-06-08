@@ -2,72 +2,75 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>CAP Search Pattern Planner Rebuilt</title>
+<title>CAP Search Pattern Planner v3</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <style>
-body {
-  margin:0;
-  display:flex;
-  height:100vh;
-  font-family:Arial, sans-serif;
-}
-#controls {
-  width:390px;
-  padding:10px;
-  background:#f3f3f3;
-  overflow:auto;
-  box-sizing:border-box;
-}
-#map { flex:1; }
-input, select, button {
-  width:100%;
-  margin:4px 0 10px;
-  box-sizing:border-box;
-}
-label { font-weight:bold; font-size:13px; }
-.small { font-size:12px; color:#444; margin-bottom:10px; }
-hr { margin:12px 0; }
+body{margin:0;display:flex;height:100vh;font-family:Arial,sans-serif}
+#controls{width:420px;padding:10px;background:#f3f3f3;overflow:auto;box-sizing:border-box}
+#map{flex:1}
+input,select,button{width:100%;margin:4px 0 10px;box-sizing:border-box}
+label{font-weight:bold;font-size:13px}
+.small{font-size:12px;color:#444;margin-bottom:10px}
+hr{margin:12px 0}
 </style>
 </head>
 <body>
 
 <div id="controls">
-<h3>CAP Search Pattern Planner</h3>
+<h3>CAP Search Pattern Planner v3</h3>
 
 <div class="small">
-Click the map to set the center/datum of the search area.
+Click the map to set either a point on the expected route or a datum point, depending on selected search basis.
 </div>
 
+<label>Search Basis</label>
+<select id="basis" onchange="updateVisibleControls()">
+  <option value="route">Route-Based Search</option>
+  <option value="datum">Datum-Based Search</option>
+</select>
+
 <label>Pattern</label>
-<select id="pattern">
+<select id="pattern" onchange="updateVisibleControls()">
   <option value="parallel">Parallel Track</option>
   <option value="creeping">Creeping Line</option>
-  <option value="square">Expanding Square</option>
-  <option value="sector">Sector Search</option>
   <option value="trackline">Track Line Search</option>
   <option value="route">Route Search</option>
+  <option value="square">Expanding Square</option>
+  <option value="sector">Sector Search</option>
 </select>
 
 <hr>
 
-<label>Search Area Length, NM - along expected path</label>
+<div id="routeControls">
+<label>Clicked Route Point Represents</label>
+<select id="routePointMode">
+  <option value="center">Center of Search Segment</option>
+  <option value="start">Start of Search Segment</option>
+  <option value="end">End of Search Segment</option>
+</select>
+
+<label>Expected Target / Route Heading</label>
+<input id="routeHeading" type="number" value="90" step="1">
+
+<label>Search Area Length, NM</label>
 <input id="areaLength" type="number" value="8" step="0.1">
 
-<label>Search Area Width, NM - across expected path</label>
+<label>Search Area Width, NM</label>
 <input id="areaWidth" type="number" value="4" step="0.1">
+</div>
 
-<label>Expected Path / Rectangle Heading</label>
-<input id="areaHeading" type="number" value="90" step="1">
+<div id="datumControls">
+<label>Datum Initial Search Heading</label>
+<input id="datumHeading" type="number" value="90" step="1">
 
-<label>Approach Side</label>
-<select id="approachSide">
-  <option value="southwest">Southwest / lower-left corner</option>
-  <option value="southeast">Southeast / lower-right corner</option>
-  <option value="northwest">Northwest / upper-left corner</option>
-  <option value="northeast">Northeast / upper-right corner</option>
-</select>
+<label>Datum Search Radius, NM</label>
+<input id="datumRadius" type="number" value="3" step="0.1">
+</div>
 
 <hr>
+
+<label>Aircraft Arrival Heading</label>
+<input id="arrivalHeading" type="number" value="270" step="1">
 
 <label>Single Scanner Side</label>
 <select id="singleScannerSide">
@@ -87,16 +90,8 @@ Click the map to set the center/datum of the search area.
 <label>Optional Override Track Spacing, NM</label>
 <input id="spacingOverride" type="number" value="" step="0.1" placeholder="blank = auto">
 
-<hr>
-
 <label>Turn / Maneuver Buffer Outside Rectangle, NM</label>
 <input id="turnBuffer" type="number" value="0.3" step="0.1">
-
-<label>Expanding Square / Sector Max Radius, NM</label>
-<input id="maxRadius" type="number" value="3" step="0.1">
-
-<label>Expanding Square Initial Heading</label>
-<input id="initialHeading" type="number" value="90" step="1">
 
 <button onclick="generatePattern()">Generate Pattern</button>
 <button onclick="clearMap()">Clear</button>
@@ -114,23 +109,24 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
-let centerPoint = null;
-let centerMarker = null;
+let anchorPoint = null;
+let anchorMarker = null;
 let searchAreaLayer = null;
 let patternLayer = null;
-let scanLayer = null;
+let searchLegLayer = null;
+let maneuverLayer = null;
 
 map.on('click', e => {
-  centerPoint = e.latlng;
-  if (centerMarker) map.removeLayer(centerMarker);
-  centerMarker = L.marker(centerPoint).addTo(map).bindPopup("Search Area Center / Datum").openPopup();
+  anchorPoint = e.latlng;
+  if (anchorMarker) map.removeLayer(anchorMarker);
+  anchorMarker = L.marker(anchorPoint).addTo(map).bindPopup("Anchor Point").openPopup();
 });
 
-function degToRad(d) { return d * Math.PI / 180; }
-function radToDeg(r) { return r * 180 / Math.PI; }
-function norm360(d) { return ((d % 360) + 360) % 360; }
+function degToRad(d){return d*Math.PI/180;}
+function radToDeg(r){return r*180/Math.PI;}
+function norm360(d){return ((d%360)+360)%360;}
 
-function dest(lat, lon, bearingDeg, nm) {
+function dest(lat, lon, bearingDeg, nm){
   const R = 3440.065;
   const b = degToRad(bearingDeg);
   const d = nm / R;
@@ -138,25 +134,51 @@ function dest(lat, lon, bearingDeg, nm) {
   const lo1 = degToRad(lon);
 
   const la2 = Math.asin(
-    Math.sin(la1) * Math.cos(d) +
-    Math.cos(la1) * Math.sin(d) * Math.cos(b)
+    Math.sin(la1)*Math.cos(d) +
+    Math.cos(la1)*Math.sin(d)*Math.cos(b)
   );
 
   const lo2 = lo1 + Math.atan2(
-    Math.sin(b) * Math.sin(d) * Math.cos(la1),
-    Math.cos(d) - Math.sin(la1) * Math.sin(la2)
+    Math.sin(b)*Math.sin(d)*Math.cos(la1),
+    Math.cos(d)-Math.sin(la1)*Math.sin(la2)
   );
 
   return [radToDeg(la2), radToDeg(lo2)];
 }
 
-function offsetFromCenter(center, alongNm, acrossNm, headingDeg) {
+function distanceNm(lat1, lon1, lat2, lon2){
+  const R = 3440.065;
+  const dLat = degToRad(lat2-lat1);
+  const dLon = degToRad(lon2-lon1);
+  const a =
+    Math.sin(dLat/2)**2 +
+    Math.cos(degToRad(lat1))*Math.cos(degToRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function offsetFromCenter(center, alongNm, acrossNm, headingDeg){
   let p = dest(center.lat, center.lng, headingDeg, alongNm);
   p = dest(p[0], p[1], headingDeg + 90, acrossNm);
   return p;
 }
 
-function buildSearchRectangle(center, lengthNm, widthNm, headingDeg) {
+function getRouteCenter(anchor, lengthNm, headingDeg, mode){
+  if(mode === "center") return anchor;
+
+  if(mode === "start"){
+    const p = dest(anchor.lat, anchor.lng, headingDeg, lengthNm / 2);
+    return L.latLng(p[0], p[1]);
+  }
+
+  if(mode === "end"){
+    const p = dest(anchor.lat, anchor.lng, headingDeg + 180, lengthNm / 2);
+    return L.latLng(p[0], p[1]);
+  }
+
+  return anchor;
+}
+
+function buildSearchRectangle(center, lengthNm, widthNm, headingDeg){
   const hL = lengthNm / 2;
   const hW = widthNm / 2;
 
@@ -165,329 +187,339 @@ function buildSearchRectangle(center, lengthNm, widthNm, headingDeg) {
   const ne = offsetFromCenter(center,  hL,  hW, headingDeg);
   const nw = offsetFromCenter(center, -hL,  hW, headingDeg);
 
-  return { sw, se, ne, nw, ring: [sw, se, ne, nw, sw] };
+  return { sw, se, ne, nw, ring:[sw,se,ne,nw,sw] };
 }
 
-function getAutoSpacing(scannerCount, visibleRangeNm) {
-  if (scannerCount === 1) return visibleRangeNm;
-  return visibleRangeNm * 2;
+function getAutoSpacing(scannerCount, visibleRangeNm){
+  return scannerCount === 1 ? visibleRangeNm : visibleRangeNm * 2;
 }
 
-function chooseStartOffset(lengthNm, widthNm, approachSide) {
+function chooseRouteEntry(lengthNm, widthNm, routeHeading, arrivalHeading){
   const hL = lengthNm / 2;
   const hW = widthNm / 2;
 
-  const map = {
-    southwest: { along: -hL, across: -hW },
-    southeast: { along:  hL, across: -hW },
-    northwest: { along: -hL, across:  hW },
-    northeast: { along:  hL, across:  hW }
-  };
-  return map[approachSide];
+  const candidates = [
+    {name:"SW", along:-hL, across:-hW},
+    {name:"SE", along: hL, across:-hW},
+    {name:"NW", along:-hL, across: hW},
+    {name:"NE", along: hL, across: hW}
+  ];
+
+  let best = candidates[0];
+  let bestScore = 999999;
+
+  for(const c of candidates){
+    const bearingFromCenter = norm360(routeHeading + radToDeg(Math.atan2(c.across, c.along)));
+    const inboundOpposite = norm360(arrivalHeading + 180);
+    const diff = Math.abs(((bearingFromCenter - inboundOpposite + 540) % 360) - 180);
+    if(diff < bestScore){
+      bestScore = diff;
+      best = c;
+    }
+  }
+
+  return best;
 }
 
-function addOutsideBuffer(point, headingDeg, bufferNm) {
-  return dest(point[0], point[1], headingDeg, bufferNm);
-}
-
-function generateParallelTrack(center, lengthNm, widthNm, headingDeg, spacingNm, approachSide, turnBufferNm) {
-  /*
-    Parallel Track:
-    - Search legs are parallel to the expected path / rectangle heading.
-    - Spacing steps across the rectangle width.
-    - Turns and spacing connectors occur outside the rectangle.
-  */
-
-  const pts = [];
+function generateParallelTrack(center, lengthNm, widthNm, headingDeg, spacingNm, arrivalHeading, turnBufferNm){
   const hL = lengthNm / 2;
   const hW = widthNm / 2;
+  const entry = chooseRouteEntry(lengthNm, widthNm, headingDeg, arrivalHeading);
 
-  const start = chooseStartOffset(lengthNm, widthNm, approachSide);
-  let across = start.across;
-  let direction = start.along < 0 ? 1 : -1;
+  let across = entry.across;
+  let direction = entry.along < 0 ? 1 : -1;
+  const acrossStepSign = entry.across < 0 ? 1 : -1;
 
-  while (Math.abs(across) <= hW + 0.0001) {
+  const searchSegments = [];
+  const maneuverSegments = [];
+  let lastPoint = null;
+
+  while(Math.abs(across) <= hW + 0.0001){
     const entryAlong = direction === 1 ? -hL : hL;
     const exitAlong  = direction === 1 ?  hL : -hL;
-    const legHeading = direction === 1 ? headingDeg : headingDeg + 180;
+    const legHeading = norm360(direction === 1 ? headingDeg : headingDeg + 180);
 
-    const entry = offsetFromCenter(center, entryAlong, across, headingDeg);
-    const exit  = offsetFromCenter(center, exitAlong, across, headingDeg);
+    const inPt = offsetFromCenter(center, entryAlong, across, headingDeg);
+    const outPt = offsetFromCenter(center, exitAlong, across, headingDeg);
+    const preIn = dest(inPt[0], inPt[1], legHeading + 180, turnBufferNm);
+    const postOut = dest(outPt[0], outPt[1], legHeading, turnBufferNm);
 
-    const outsideEntry = dest(entry[0], entry[1], norm360(legHeading + 180), turnBufferNm);
-    const outsideExit  = dest(exit[0], exit[1], legHeading, turnBufferNm);
+    if(!lastPoint) lastPoint = preIn;
+    maneuverSegments.push([lastPoint, preIn]);
+    searchSegments.push([inPt, outPt]);
+    maneuverSegments.push([outPt, postOut]);
 
-    if (pts.length === 0) pts.push(outsideEntry);
-    pts.push(entry);
-    pts.push(exit);
-    pts.push(outsideExit);
+    const nextAcross = across + spacingNm * acrossStepSign;
+    if(Math.abs(nextAcross) > hW + 0.0001) break;
 
-    const nextAcross = start.across < 0 ? across + spacingNm : across - spacingNm;
-    if (Math.abs(nextAcross) > hW + 0.0001) break;
+    const nextDirection = direction * -1;
+    const nextEntryAlong = nextDirection === 1 ? -hL : hL;
+    const nextLegHeading = norm360(nextDirection === 1 ? headingDeg : headingDeg + 180);
+    const nextInPt = offsetFromCenter(center, nextEntryAlong, nextAcross, headingDeg);
+    const nextPreIn = dest(nextInPt[0], nextInPt[1], nextLegHeading + 180, turnBufferNm);
 
-    const nextEntryAlong = exitAlong;
-    const nextEntry = offsetFromCenter(center, nextEntryAlong, nextAcross, headingDeg);
-    const nextLegHeading = norm360(legHeading + 180);
-    const nextOutsideEntry = dest(nextEntry[0], nextEntry[1], norm360(nextLegHeading + 180), turnBufferNm);
+    maneuverSegments.push([postOut, nextPreIn]);
 
-    pts.push(nextOutsideEntry);
-
+    lastPoint = nextPreIn;
     across = nextAcross;
-    direction *= -1;
+    direction = nextDirection;
   }
 
-  return pts;
+  return { searchSegments, maneuverSegments };
 }
 
-function generateCreepingLine(center, lengthNm, widthNm, headingDeg, spacingNm, approachSide, turnBufferNm) {
-  /*
-    Creeping Line:
-    - Search legs are perpendicular to the expected path / rectangle heading.
-    - Spacing steps along the rectangle length.
-  */
-
-  const pts = [];
+function generateCreepingLine(center, lengthNm, widthNm, headingDeg, spacingNm, arrivalHeading, turnBufferNm){
   const hL = lengthNm / 2;
   const hW = widthNm / 2;
+  const entry = chooseRouteEntry(lengthNm, widthNm, headingDeg, arrivalHeading);
 
-  const start = chooseStartOffset(lengthNm, widthNm, approachSide);
-  let along = start.along;
-  let direction = start.across < 0 ? 1 : -1;
+  let along = entry.along;
+  let direction = entry.across < 0 ? 1 : -1;
+  const alongStepSign = entry.along < 0 ? 1 : -1;
 
-  while (Math.abs(along) <= hL + 0.0001) {
+  const searchSegments = [];
+  const maneuverSegments = [];
+  let lastPoint = null;
+
+  while(Math.abs(along) <= hL + 0.0001){
     const entryAcross = direction === 1 ? -hW : hW;
     const exitAcross  = direction === 1 ?  hW : -hW;
-    const legHeading = direction === 1 ? headingDeg + 90 : headingDeg - 90;
+    const legHeading = norm360(direction === 1 ? headingDeg + 90 : headingDeg - 90);
 
-    const entry = offsetFromCenter(center, along, entryAcross, headingDeg);
-    const exit  = offsetFromCenter(center, along, exitAcross, headingDeg);
+    const inPt = offsetFromCenter(center, along, entryAcross, headingDeg);
+    const outPt = offsetFromCenter(center, along, exitAcross, headingDeg);
+    const preIn = dest(inPt[0], inPt[1], legHeading + 180, turnBufferNm);
+    const postOut = dest(outPt[0], outPt[1], legHeading, turnBufferNm);
 
-    const outsideEntry = dest(entry[0], entry[1], norm360(legHeading + 180), turnBufferNm);
-    const outsideExit  = dest(exit[0], exit[1], legHeading, turnBufferNm);
+    if(!lastPoint) lastPoint = preIn;
+    maneuverSegments.push([lastPoint, preIn]);
+    searchSegments.push([inPt, outPt]);
+    maneuverSegments.push([outPt, postOut]);
 
-    if (pts.length === 0) pts.push(outsideEntry);
-    pts.push(entry);
-    pts.push(exit);
-    pts.push(outsideExit);
+    const nextAlong = along + spacingNm * alongStepSign;
+    if(Math.abs(nextAlong) > hL + 0.0001) break;
 
-    const nextAlong = start.along < 0 ? along + spacingNm : along - spacingNm;
-    if (Math.abs(nextAlong) > hL + 0.0001) break;
+    const nextDirection = direction * -1;
+    const nextEntryAcross = nextDirection === 1 ? -hW : hW;
+    const nextLegHeading = norm360(nextDirection === 1 ? headingDeg + 90 : headingDeg - 90);
+    const nextInPt = offsetFromCenter(center, nextAlong, nextEntryAcross, headingDeg);
+    const nextPreIn = dest(nextInPt[0], nextInPt[1], nextLegHeading + 180, turnBufferNm);
 
-    const nextEntryAcross = exitAcross;
-    const nextEntry = offsetFromCenter(center, nextAlong, nextEntryAcross, headingDeg);
-    const nextLegHeading = norm360(legHeading + 180);
-    const nextOutsideEntry = dest(nextEntry[0], nextEntry[1], norm360(nextLegHeading + 180), turnBufferNm);
+    maneuverSegments.push([postOut, nextPreIn]);
 
-    pts.push(nextOutsideEntry);
-
+    lastPoint = nextPreIn;
     along = nextAlong;
-    direction *= -1;
+    direction = nextDirection;
   }
 
-  return pts;
+  return { searchSegments, maneuverSegments };
 }
 
-function generateExpandingSquare(center, headingDeg, spacingNm, maxRadiusNm) {
-  /*
-    Expanding Square:
-    - Starts at datum / center.
-    - Legs: S, S, 2S, 2S, 3S, 3S...
-    - This version does not mathematically clip to the rectangle yet.
-    - It generates until the leg length exceeds max radius.
-  */
+function generateTrackLine(center, lengthNm, headingDeg){
+  const start = dest(center.lat, center.lng, headingDeg + 180, lengthNm / 2);
+  const end = dest(center.lat, center.lng, headingDeg, lengthNm / 2);
+  return { searchSegments:[[start,end]], maneuverSegments:[] };
+}
 
-  const pts = [[center.lat, center.lng]];
+function generateExpandingSquare(center, headingDeg, spacingNm, radiusNm){
+  const searchSegments = [];
+  const maneuverSegments = [];
   let current = [center.lat, center.lng];
   let legLength = spacingNm;
   let heading = headingDeg;
-  let legCounter = 0;
+  let legCount = 0;
 
-  while (legLength <= maxRadiusNm * 2) {
+  while(legLength <= radiusNm * 2){
     const next = dest(current[0], current[1], heading, legLength);
-    pts.push(next);
+    if(distanceNm(center.lat, center.lng, next[0], next[1]) > radiusNm * 1.5) break;
+
+    searchSegments.push([current, next]);
+
     current = next;
-
     heading = norm360(heading + 90);
-    legCounter++;
+    legCount++;
 
-    if (legCounter % 2 === 0) {
-      legLength += spacingNm;
+    if(legCount % 2 === 0) legLength += spacingNm;
+  }
+
+  return { searchSegments, maneuverSegments };
+}
+
+function generateSectorSearch(center, headingDeg, radiusNm){
+  const searchSegments = [];
+  const maneuverSegments = [];
+
+  for(let i=0; i<6; i++){
+    const h = norm360(headingDeg + i * 60);
+    const outer = dest(center.lat, center.lng, h, radiusNm);
+    searchSegments.push([[center.lat, center.lng], outer]);
+    searchSegments.push([outer, [center.lat, center.lng]]);
+  }
+
+  return { searchSegments, maneuverSegments };
+}
+
+function flattenSegments(segments){
+  const pts = [];
+  for(const seg of segments){
+    if(pts.length === 0){
+      pts.push(seg[0]);
+      pts.push(seg[1]);
+    } else {
+      pts.push(seg[0]);
+      pts.push(seg[1]);
     }
-
-    const distFromCenter = approximateDistanceNm(center.lat, center.lng, current[0], current[1]);
-    if (distFromCenter > maxRadiusNm * 1.5) break;
   }
-
   return pts;
 }
 
-function generateSectorSearch(center, headingDeg, radiusNm) {
-  /*
-    Simplified Sector Search:
-    - Starts at datum.
-    - Flies radial legs out and back.
-    - Rotates by 60 degrees.
-  */
-
-  const pts = [[center.lat, center.lng]];
-
-  for (let i = 0; i < 6; i++) {
-    const outboundHeading = norm360(headingDeg + i * 60);
-    const outer = dest(center.lat, center.lng, outboundHeading, radiusNm);
-    pts.push(outer);
-    pts.push([center.lat, center.lng]);
+function drawSegments(segments, options){
+  const group = L.layerGroup();
+  for(const seg of segments){
+    L.polyline(seg, options).addTo(group);
   }
-
-  return pts;
+  group.addTo(map);
+  return group;
 }
 
-function generateTrackLine(center, lengthNm, headingDeg, visibleRangeNm, scannerCount) {
-  /*
-    Track Line / Route Search:
-    - Main route line with lateral scan corridor.
-  */
-  const start = dest(center.lat, center.lng, headingDeg + 180, lengthNm / 2);
-  const end = dest(center.lat, center.lng, headingDeg, lengthNm / 2);
-  return [start, end];
-}
+function clearMap(){
+  if(anchorMarker) map.removeLayer(anchorMarker);
+  if(searchAreaLayer) map.removeLayer(searchAreaLayer);
+  if(patternLayer) map.removeLayer(patternLayer);
+  if(searchLegLayer) map.removeLayer(searchLegLayer);
+  if(maneuverLayer) map.removeLayer(maneuverLayer);
 
-function approximateDistanceNm(lat1, lon1, lat2, lon2) {
-  const R = 3440.065;
-  const dLat = degToRad(lat2 - lat1);
-  const dLon = degToRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(degToRad(lat1)) * Math.cos(degToRad(lat2)) *
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function drawScanCorridorForLine(points, spacingNm) {
-  /*
-    Visual aid only:
-    Leaflet does not natively buffer geodesic polylines in NM.
-    For now, this draws a simple centerline pattern only.
-  */
-}
-
-function clearMap() {
-  if (searchAreaLayer) map.removeLayer(searchAreaLayer);
-  if (patternLayer) map.removeLayer(patternLayer);
-  if (scanLayer) map.removeLayer(scanLayer);
-  if (centerMarker) map.removeLayer(centerMarker);
-
+  anchorPoint = null;
+  anchorMarker = null;
   searchAreaLayer = null;
   patternLayer = null;
-  scanLayer = null;
-  centerMarker = null;
-  centerPoint = null;
+  searchLegLayer = null;
+  maneuverLayer = null;
 
   document.getElementById("info").innerHTML = "";
 }
 
-function generatePattern() {
-  if (!centerPoint) {
-    alert("Click the map to set the search area center / datum first.");
+function updateVisibleControls(){
+  const basis = document.getElementById("basis").value;
+  const pattern = document.getElementById("pattern");
+
+  const routePatterns = ["parallel","creeping","trackline","route"];
+  const datumPatterns = ["square","sector"];
+
+  document.getElementById("routeControls").style.display = basis === "route" ? "block" : "none";
+  document.getElementById("datumControls").style.display = basis === "datum" ? "block" : "none";
+
+  for(const opt of pattern.options){
+    if(basis === "route") opt.disabled = !routePatterns.includes(opt.value);
+    if(basis === "datum") opt.disabled = !datumPatterns.includes(opt.value);
+  }
+
+  if(basis === "route" && !routePatterns.includes(pattern.value)) pattern.value = "parallel";
+  if(basis === "datum" && !datumPatterns.includes(pattern.value)) pattern.value = "square";
+}
+
+function generatePattern(){
+  if(!anchorPoint){
+    alert("Click the map first.");
     return;
   }
 
+  if(searchAreaLayer) map.removeLayer(searchAreaLayer);
+  if(searchLegLayer) map.removeLayer(searchLegLayer);
+  if(maneuverLayer) map.removeLayer(maneuverLayer);
+
+  const basis = document.getElementById("basis").value;
   const pattern = document.getElementById("pattern").value;
-  const areaLength = Number(document.getElementById("areaLength").value);
-  const areaWidth = Number(document.getElementById("areaWidth").value);
-  const areaHeading = norm360(Number(document.getElementById("areaHeading").value));
-  const approachSide = document.getElementById("approachSide").value;
   const scannerCount = Number(document.getElementById("scanners").value);
   const visibleRange = Number(document.getElementById("visibleRange").value);
-  const overrideSpacingRaw = document.getElementById("spacingOverride").value;
-  const turnBuffer = Number(document.getElementById("turnBuffer").value);
-  const maxRadius = Number(document.getElementById("maxRadius").value);
-  const initialHeading = norm360(Number(document.getElementById("initialHeading").value));
-
+  const overrideRaw = document.getElementById("spacingOverride").value;
   const autoSpacing = getAutoSpacing(scannerCount, visibleRange);
-  const spacing = overrideSpacingRaw === "" ? autoSpacing : Number(overrideSpacingRaw);
+  const spacing = overrideRaw === "" ? autoSpacing : Number(overrideRaw);
+  const arrivalHeading = norm360(Number(document.getElementById("arrivalHeading").value));
+  const turnBuffer = Number(document.getElementById("turnBuffer").value);
 
-  const rect = buildSearchRectangle(centerPoint, areaLength, areaWidth, areaHeading);
+  let result = null;
+  let routeCenter = null;
+  let boundsGroup = L.featureGroup();
 
-  if (searchAreaLayer) map.removeLayer(searchAreaLayer);
-  if (patternLayer) map.removeLayer(patternLayer);
-  if (scanLayer) map.removeLayer(scanLayer);
+  if(basis === "route"){
+    const areaLength = Number(document.getElementById("areaLength").value);
+    const areaWidth = Number(document.getElementById("areaWidth").value);
+    const routeHeading = norm360(Number(document.getElementById("routeHeading").value));
+    const routePointMode = document.getElementById("routePointMode").value;
 
-  searchAreaLayer = L.polygon(rect.ring, {
-    color: "blue",
-    weight: 2,
-    fillOpacity: 0.08
-  }).addTo(map).bindPopup("Rotated Search Area Rectangle");
+    routeCenter = getRouteCenter(anchorPoint, areaLength, routeHeading, routePointMode);
+    const rect = buildSearchRectangle(routeCenter, areaLength, areaWidth, routeHeading);
 
-  let pts = [];
+    searchAreaLayer = L.polygon(rect.ring, {
+      color:"blue",
+      weight:2,
+      fillOpacity:0.08
+    }).addTo(map).bindPopup("Rotated Search Area Rectangle");
 
-  if (pattern === "parallel") {
-    pts = generateParallelTrack(
-      centerPoint,
-      areaLength,
-      areaWidth,
-      areaHeading,
-      spacing,
-      approachSide,
-      turnBuffer
-    );
+    boundsGroup.addLayer(searchAreaLayer);
+
+    if(pattern === "parallel"){
+      result = generateParallelTrack(routeCenter, areaLength, areaWidth, routeHeading, spacing, arrivalHeading, turnBuffer);
+    }
+
+    if(pattern === "creeping"){
+      result = generateCreepingLine(routeCenter, areaLength, areaWidth, routeHeading, spacing, arrivalHeading, turnBuffer);
+    }
+
+    if(pattern === "trackline" || pattern === "route"){
+      result = generateTrackLine(routeCenter, areaLength, routeHeading);
+    }
   }
 
-  if (pattern === "creeping") {
-    pts = generateCreepingLine(
-      centerPoint,
-      areaLength,
-      areaWidth,
-      areaHeading,
-      spacing,
-      approachSide,
-      turnBuffer
-    );
+  if(basis === "datum"){
+    const datumHeading = norm360(Number(document.getElementById("datumHeading").value));
+    const datumRadius = Number(document.getElementById("datumRadius").value);
+
+    if(pattern === "square"){
+      result = generateExpandingSquare(anchorPoint, datumHeading, spacing, datumRadius);
+    }
+
+    if(pattern === "sector"){
+      result = generateSectorSearch(anchorPoint, datumHeading, datumRadius);
+    }
+
+    const radiusCircleMeters = datumRadius * 1852;
+    searchAreaLayer = L.circle(anchorPoint, {
+      radius: radiusCircleMeters,
+      color:"blue",
+      weight:2,
+      fillOpacity:0.06
+    }).addTo(map).bindPopup("Datum Search Radius");
+
+    boundsGroup.addLayer(searchAreaLayer);
   }
 
-  if (pattern === "square") {
-    pts = generateExpandingSquare(
-      centerPoint,
-      initialHeading,
-      spacing,
-      maxRadius
-    );
-  }
+  searchLegLayer = drawSegments(result.searchSegments, {
+    color:"green",
+    weight:4
+  });
 
-  if (pattern === "sector") {
-    pts = generateSectorSearch(
-      centerPoint,
-      initialHeading,
-      maxRadius
-    );
-  }
+  maneuverLayer = drawSegments(result.maneuverSegments, {
+    color:"red",
+    weight:3,
+    dashArray:"8,8"
+  });
 
-  if (pattern === "trackline" || pattern === "route") {
-    pts = generateTrackLine(
-      centerPoint,
-      areaLength,
-      areaHeading,
-      visibleRange,
-      scannerCount
-    );
-  }
+  boundsGroup.addLayer(searchLegLayer);
+  boundsGroup.addLayer(maneuverLayer);
 
-  patternLayer = L.polyline(pts, {
-    color: "red",
-    weight: 3
-  }).addTo(map).bindPopup("Generated Search Pattern");
-
-  const bounds = L.featureGroup([searchAreaLayer, patternLayer]).getBounds();
-  map.fitBounds(bounds.pad(0.2));
+  map.fitBounds(boundsGroup.getBounds().pad(0.2));
 
   document.getElementById("info").innerHTML =
     "<b>Computed Track Spacing:</b> " + spacing.toFixed(2) + " NM<br>" +
     "<b>Auto Spacing:</b> " + autoSpacing.toFixed(2) + " NM<br>" +
-    "<b>Pattern:</b> " + pattern + "<br>" +
-    "<b>Rectangle Heading:</b> " + areaHeading.toFixed(0) + "°<br>" +
-    "<b>Turn Buffer:</b> " + turnBuffer.toFixed(2) + " NM<br>" +
-    "<b>Note:</b> Red line includes outside-rectangle maneuver segments. Only rectangle-crossing legs should be counted as searched.";
+    "<b>Green:</b> Active search legs<br>" +
+    "<b>Red dashed:</b> Maneuver / turn / reposition legs<br>" +
+    "<b>Important:</b> Only green legs should be counted as searched coverage.";
 }
+
+updateVisibleControls();
 </script>
 
 </body>
