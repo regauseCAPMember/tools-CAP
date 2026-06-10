@@ -12,6 +12,8 @@
     :root {
       --blue: #1565c0;
       --red: #d32f2f;
+      --green: #2e7d32;
+      --orange: #ef6c00;
       --gray-050: #f7f7f7;
       --gray-100: #eeeeee;
       --gray-200: #dddddd;
@@ -37,7 +39,7 @@
       padding: 10px 12px;
       background: var(--gray-050);
       border-bottom: 1px solid var(--gray-200);
-      max-height: 45vh;
+      max-height: 48vh;
       overflow: auto;
     }
 
@@ -74,6 +76,18 @@
       background: #1e88e5;
       color: white;
       border-color: #1e88e5;
+    }
+
+    button.success {
+      background: #e8f5e9;
+      border-color: #2e7d32;
+      color: #1b5e20;
+    }
+
+    button.warning {
+      background: #fff8e1;
+      border-color: #ef6c00;
+      color: #e65100;
     }
 
     button.danger {
@@ -151,7 +165,21 @@
       line-height: 1.45;
     }
 
+    .result-card.navigation-card {
+      border-left-color: var(--green);
+    }
+
     .result-card strong { color: #111; }
+
+    .big-navigation {
+      font-size: 1.3rem;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+
+    .turn-left, .turn-right { color: var(--orange); }
+    .on-course { color: var(--green); }
+    .unavailable { color: var(--gray-700); }
 
     #map {
       height: 100%;
@@ -178,13 +206,23 @@
       box-shadow: 0 0 0 2px var(--blue), 0 0 6px rgba(0,0,0,0.35);
     }
 
+    .aircraft-marker {
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 24px solid var(--green);
+      filter: drop-shadow(0 0 3px rgba(0,0,0,0.55));
+      transform-origin: 10px 13px;
+    }
+
     .status {
       color: var(--gray-700);
       font-weight: 600;
     }
 
     @media (max-width: 850px) {
-      #controls { max-height: 52vh; }
+      #controls { max-height: 55vh; }
       h1 { font-size: 1.15rem; }
       .hint { font-size: 0.88rem; }
       button { padding: 6px 8px; }
@@ -198,13 +236,19 @@
     <p class="hint">
       Add radio contact/loss boundary points by typing CAP-style degrees and decimal minutes, typing decimal degrees,
       clicking the map, or using device GPS. After 3 points, the estimated ELT location is recalculated automatically.
-      CAP coordinate display is shown in Degrees + Decimal Minutes.
+      CAP coordinate display is shown in Degrees + Decimal Minutes. Live aircraft GPS guidance is advisory only and uses
+      device GPS ground track when available.
     </p>
 
     <div class="toolbar">
       <button class="primary" id="addPointBtn" type="button">Add Blank Point</button>
       <button id="mapClickBtn" type="button">Add Points by Map Click</button>
       <button id="recalcBtn" type="button">Recalculate</button>
+      <button id="centerEltBtn" type="button">Center on ELT</button>
+      <button id="showAllBtn" type="button">Show All</button>
+      <button class="success" id="startLiveGpsBtn" type="button">Start Live Aircraft GPS</button>
+      <button class="warning" id="stopLiveGpsBtn" type="button">Stop Live GPS</button>
+      <button id="centerAircraftBtn" type="button">Center on Aircraft</button>
       <button class="danger" id="clearBtn" type="button">Clear Points</button>
       <span class="status" id="statusText">Need at least 3 valid points.</span>
     </div>
@@ -271,10 +315,11 @@
   const pointLayer = L.layerGroup().addTo(map);
   const geometryLayer = L.layerGroup().addTo(map);
   const eltLayer = L.layerGroup().addTo(map);
+  const aircraftLayer = L.layerGroup().addTo(map);
 
   L.control.layers(
     { 'Esri Hybrid Imagery': imagery },
-    { 'Roads': transportation, 'Labels / Boundaries': labels, 'County Lines': countyLayer },
+    { 'Roads': transportation, 'Labels / Boundaries': labels, 'County Lines': countyLayer, 'Aircraft GPS': aircraftLayer },
     { collapsed: true }
   ).addTo(map);
 
@@ -284,14 +329,35 @@
   let points = [];
   let mapClickMode = false;
   let countyLoadTimer = null;
+  let currentELT = null;
+  let currentCircle = null;
+  let gpsWatchId = null;
+  let aircraftPosition = null;
+  let previousAircraftPosition = null;
+  let aircraftMarker = null;
+  let aircraftAccuracyCircle = null;
+  let aircraftToEltLine = null;
+  let latestNavigation = null;
 
   const pointRows = document.getElementById('pointRows');
   const results = document.getElementById('results');
   const statusText = document.getElementById('statusText');
   const mapClickBtn = document.getElementById('mapClickBtn');
+  const startLiveGpsBtn = document.getElementById('startLiveGpsBtn');
+  const stopLiveGpsBtn = document.getElementById('stopLiveGpsBtn');
 
   const pointIcon = L.divIcon({ className: '', html: '<span class="point-marker"></span>', iconSize: [18, 18], iconAnchor: [9, 9] });
   const eltIcon = L.divIcon({ className: '', html: '<span class="elt-marker"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
+
+  function aircraftIcon(trackDegrees) {
+    const rotation = Number.isFinite(trackDegrees) ? trackDegrees : 0;
+    return L.divIcon({
+      className: '',
+      html: `<span class="aircraft-marker" style="transform: rotate(${rotation}deg);"></span>`,
+      iconSize: [24, 28],
+      iconAnchor: [12, 14]
+    });
+  }
 
   // -----------------------------
   // Coordinate formatting/parsing
@@ -346,6 +412,86 @@
 
   function formatDecimal(value) {
     return Number.isFinite(value) ? value.toFixed(6) : '';
+  }
+
+  function formatHeading(value) {
+    return Number.isFinite(value) ? `${Math.round(value).toString().padStart(3, '0')}°T` : 'Unavailable';
+  }
+
+  function formatNm(meters) {
+    return Number.isFinite(meters) ? `${(meters / 1852).toFixed(2)} NM` : 'Unavailable';
+  }
+
+  function formatMph(mps) {
+    return Number.isFinite(mps) ? `${(mps * 2.2369362921).toFixed(1)} mph` : 'Unavailable';
+  }
+
+  function formatKnots(mps) {
+    return Number.isFinite(mps) ? `${(mps * 1.9438444924).toFixed(1)} kt` : 'Unavailable';
+  }
+
+  // -----------------------------
+  // Navigation math
+  // -----------------------------
+  function toRadians(deg) { return deg * Math.PI / 180; }
+  function toDegrees(rad) { return rad * 180 / Math.PI; }
+
+  function normalizeDegrees(deg) {
+    return ((deg % 360) + 360) % 360;
+  }
+
+  function bearingDegrees(lat1, lon1, lat2, lon2) {
+    const phi1 = toRadians(lat1);
+    const phi2 = toRadians(lat2);
+    const dLambda = toRadians(lon2 - lon1);
+    const y = Math.sin(dLambda) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+    return normalizeDegrees(toDegrees(Math.atan2(y, x)));
+  }
+
+  function distanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371008.8;
+    const phi1 = toRadians(lat1);
+    const phi2 = toRadians(lat2);
+    const dPhi = toRadians(lat2 - lat1);
+    const dLambda = toRadians(lon2 - lon1);
+    const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function signedTurnDegrees(currentTrack, targetBearing) {
+    return ((targetBearing - currentTrack + 540) % 360) - 180;
+  }
+
+  function turnInstruction(currentTrack, targetBearing) {
+    if (!Number.isFinite(currentTrack) || !Number.isFinite(targetBearing)) {
+      return { text: 'Track unavailable', cssClass: 'unavailable', degrees: null };
+    }
+
+    const diff = signedTurnDegrees(currentTrack, targetBearing);
+    const absDiff = Math.abs(diff);
+
+    if (absDiff <= 10) {
+      return { text: 'ON COURSE', cssClass: 'on-course', degrees: diff };
+    }
+
+    if (diff > 0) {
+      return { text: `TURN RIGHT ${Math.round(absDiff)}°`, cssClass: 'turn-right', degrees: diff };
+    }
+
+    return { text: `TURN LEFT ${Math.round(absDiff)}°`, cssClass: 'turn-left', degrees: diff };
+  }
+
+  function trackFromPreviousPosition() {
+    if (!aircraftPosition || !previousAircraftPosition) return null;
+    const d = distanceMeters(previousAircraftPosition.lat, previousAircraftPosition.lon, aircraftPosition.lat, aircraftPosition.lon);
+    if (d < 8) return null;
+    return bearingDegrees(previousAircraftPosition.lat, previousAircraftPosition.lon, aircraftPosition.lat, aircraftPosition.lon);
+  }
+
+  function currentAircraftTrack() {
+    if (aircraftPosition && Number.isFinite(aircraftPosition.heading)) return aircraftPosition.heading;
+    return trackFromPreviousPosition();
   }
 
   // -----------------------------
@@ -470,6 +616,95 @@
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
+  }
+
+  function startLiveAircraftGps() {
+    if (!navigator.geolocation) {
+      alert('This browser does not support geolocation.');
+      return;
+    }
+
+    if (gpsWatchId !== null) {
+      statusText.textContent = 'Live aircraft GPS is already running.';
+      return;
+    }
+
+    statusText.textContent = 'Starting live aircraft GPS...';
+    startLiveGpsBtn.classList.add('active');
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+      position => {
+        previousAircraftPosition = aircraftPosition;
+        aircraftPosition = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          altitude: position.coords.altitude,
+          altitudeAccuracy: position.coords.altitudeAccuracy,
+          heading: Number.isFinite(position.coords.heading) ? position.coords.heading : null,
+          speed: Number.isFinite(position.coords.speed) ? position.coords.speed : null,
+          timestamp: position.timestamp
+        };
+
+        updateAircraftDisplay();
+        updateNavigationDisplay();
+        statusText.textContent = 'Live aircraft GPS running.';
+      },
+      error => {
+        statusText.textContent = 'Live GPS unavailable or permission denied.';
+        alert(`Live GPS unavailable: ${error.message}`);
+        stopLiveAircraftGps();
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 1000 }
+    );
+  }
+
+  function stopLiveAircraftGps() {
+    if (gpsWatchId !== null) {
+      navigator.geolocation.clearWatch(gpsWatchId);
+      gpsWatchId = null;
+    }
+    startLiveGpsBtn.classList.remove('active');
+    statusText.textContent = 'Live aircraft GPS stopped.';
+  }
+
+  function updateAircraftDisplay() {
+    if (!aircraftPosition) return;
+
+    const track = currentAircraftTrack();
+    const ll = [aircraftPosition.lat, aircraftPosition.lon];
+
+    if (!aircraftMarker) {
+      aircraftMarker = L.marker(ll, { icon: aircraftIcon(track) }).addTo(aircraftLayer);
+    } else {
+      aircraftMarker.setLatLng(ll);
+      aircraftMarker.setIcon(aircraftIcon(track));
+    }
+
+    aircraftMarker.bindPopup(`
+      <strong>Aircraft GPS</strong><br>
+      ${decimalToDDM(aircraftPosition.lat, true)}<br>
+      ${decimalToDDM(aircraftPosition.lon, false)}<br>
+      ${formatDecimal(aircraftPosition.lat)}, ${formatDecimal(aircraftPosition.lon)}<br>
+      Track: ${formatHeading(track)}<br>
+      Speed: ${formatKnots(aircraftPosition.speed)} / ${formatMph(aircraftPosition.speed)}<br>
+      Accuracy: ${Number.isFinite(aircraftPosition.accuracy) ? aircraftPosition.accuracy.toFixed(0) + ' m' : 'Unavailable'}
+    `);
+
+    if (Number.isFinite(aircraftPosition.accuracy)) {
+      if (!aircraftAccuracyCircle) {
+        aircraftAccuracyCircle = L.circle(ll, {
+          radius: aircraftPosition.accuracy,
+          color: '#2e7d32',
+          weight: 1,
+          opacity: 0.7,
+          fill: false
+        }).addTo(aircraftLayer);
+      } else {
+        aircraftAccuracyCircle.setLatLng(ll);
+        aircraftAccuracyCircle.setRadius(aircraftPosition.accuracy);
+      }
+    }
   }
 
   map.on('click', e => {
@@ -634,7 +869,11 @@
     const validPoints = validPointsFromRows();
 
     if (validPoints.length < 3) {
+      currentELT = null;
+      currentCircle = null;
+      latestNavigation = null;
       drawGeometry(validPoints, null);
+      drawAircraftToEltLine();
       results.innerHTML = '';
       statusText.textContent = `Need at least 3 valid points. Current valid points: ${validPoints.length}.`;
       return;
@@ -644,38 +883,153 @@
     const circle = fitCircleLeastSquares(projected);
 
     if (!circle) {
+      currentELT = null;
+      currentCircle = null;
+      latestNavigation = null;
       drawGeometry(validPoints, null);
+      drawAircraftToEltLine();
       results.innerHTML = '<div class="result-card"><strong>Unable to calculate ELT.</strong><br>The points may be too close together or nearly collinear.</div>';
       statusText.textContent = 'Calculation failed: points may be nearly collinear.';
       return;
     }
 
     const elt = toLatLng(circle.x, circle.y);
+    currentELT = elt;
+    currentCircle = circle;
     drawGeometry(validPoints, circle);
+    updateNavigationDisplay();
 
     const bounds = L.latLngBounds(validPoints.map(p => [p.lat, p.lon]));
     bounds.extend([elt.lat, elt.lon]);
+    if (aircraftPosition) bounds.extend([aircraftPosition.lat, aircraftPosition.lon]);
     if (bounds.isValid()) map.fitBounds(bounds.pad(0.25), { maxZoom: 15 });
 
     const method = validPoints.length === 3 ? '3-point circumcenter' : `${validPoints.length}-point least-squares circle fit`;
     statusText.textContent = `Calculated using ${method}.`;
 
+    renderResults(method, validPoints.length);
+  }
+
+  function updateNavigationDisplay() {
+    if (!aircraftPosition || !currentELT) {
+      latestNavigation = null;
+      drawAircraftToEltLine();
+      renderResults();
+      return;
+    }
+
+    const bearingToElt = bearingDegrees(aircraftPosition.lat, aircraftPosition.lon, currentELT.lat, currentELT.lon);
+    const distanceToElt = distanceMeters(aircraftPosition.lat, aircraftPosition.lon, currentELT.lat, currentELT.lon);
+    const track = currentAircraftTrack();
+    const turn = turnInstruction(track, bearingToElt);
+
+    latestNavigation = {
+      bearingToElt,
+      distanceToElt,
+      track,
+      turn,
+      aircraft: aircraftPosition
+    };
+
+    drawAircraftToEltLine();
+    renderResults();
+  }
+
+  function drawAircraftToEltLine() {
+    if (aircraftToEltLine) {
+      aircraftLayer.removeLayer(aircraftToEltLine);
+      aircraftToEltLine = null;
+    }
+
+    if (!aircraftPosition || !currentELT) return;
+
+    aircraftToEltLine = L.polyline([
+      [aircraftPosition.lat, aircraftPosition.lon],
+      [currentELT.lat, currentELT.lon]
+    ], {
+      color: '#2e7d32',
+      weight: 3,
+      opacity: 0.9,
+      dashArray: '10,8'
+    }).addTo(aircraftLayer);
+  }
+
+  function renderResults(method = null, pointCount = null) {
+    if (!currentELT || !currentCircle) {
+      return;
+    }
+
+    const validPointCount = pointCount || validPointsFromRows().length;
+    const calcMethod = method || (validPointCount === 3 ? '3-point circumcenter' : `${validPointCount}-point least-squares circle fit`);
+
+    const navHtml = latestNavigation ? `
+      <div class="result-card navigation-card">
+        <strong>Aircraft to ELT Navigation</strong><br>
+        Aircraft: ${decimalToDDM(latestNavigation.aircraft.lat, true)} / ${decimalToDDM(latestNavigation.aircraft.lon, false)}<br>
+        Aircraft Decimal: ${formatDecimal(latestNavigation.aircraft.lat)}, ${formatDecimal(latestNavigation.aircraft.lon)}<br>
+        Track: ${formatHeading(latestNavigation.track)}<br>
+        Bearing to ELT: ${formatHeading(latestNavigation.bearingToElt)}<br>
+        Distance to ELT: ${formatNm(latestNavigation.distanceToElt)} / ${(latestNavigation.distanceToElt / 1609.344).toFixed(2)} mi<br>
+        Speed: ${formatKnots(latestNavigation.aircraft.speed)} / ${formatMph(latestNavigation.aircraft.speed)}<br>
+        GPS Accuracy: ${Number.isFinite(latestNavigation.aircraft.accuracy) ? latestNavigation.aircraft.accuracy.toFixed(0) + ' m' : 'Unavailable'}<br>
+        <div class="big-navigation ${latestNavigation.turn.cssClass}">${latestNavigation.turn.text}</div>
+      </div>
+    ` : `
+      <div class="result-card navigation-card">
+        <strong>Aircraft to ELT Navigation</strong><br>
+        Start Live Aircraft GPS to show current aircraft coordinates, bearing to ELT, distance, and turn guidance.<br>
+        <div class="big-navigation unavailable">GPS NOT RUNNING</div>
+      </div>
+    `;
+
     results.innerHTML = `
       <div class="result-card">
         <strong>Estimated ELT Location</strong><br>
-        CAP DDM Latitude: ${decimalToDDM(elt.lat, true)}<br>
-        CAP DDM Longitude: ${decimalToDDM(elt.lon, false)}<br>
-        Decimal Latitude: ${formatDecimal(elt.lat)}<br>
-        Decimal Longitude: ${formatDecimal(elt.lon)}
+        CAP DDM Latitude: ${decimalToDDM(currentELT.lat, true)}<br>
+        CAP DDM Longitude: ${decimalToDDM(currentELT.lon, false)}<br>
+        Decimal Latitude: ${formatDecimal(currentELT.lat)}<br>
+        Decimal Longitude: ${formatDecimal(currentELT.lon)}
       </div>
       <div class="result-card">
         <strong>Geometry Quality</strong><br>
-        Method: ${method}<br>
-        Estimated boundary radius: ${(circle.radiusMeters / 1609.344).toFixed(2)} miles / ${(circle.radiusMeters / 1000).toFixed(2)} km<br>
-        RMS fit error: ${circle.rmsMeters.toFixed(1)} meters<br>
-        Points used: ${validPoints.length}
+        Method: ${calcMethod}<br>
+        Estimated boundary radius: ${(currentCircle.radiusMeters / 1609.344).toFixed(2)} miles / ${(currentCircle.radiusMeters / 1000).toFixed(2)} km<br>
+        RMS fit error: ${currentCircle.rmsMeters.toFixed(1)} meters<br>
+        Points used: ${validPointCount}
       </div>
+      ${navHtml}
     `;
+  }
+
+  function centerOnELT() {
+    if (!currentELT) {
+      alert('No ELT location has been calculated yet.');
+      return;
+    }
+    map.flyTo([currentELT.lat, currentELT.lon], Math.max(map.getZoom(), 15), { animate: true, duration: 1.2 });
+  }
+
+  function centerOnAircraft() {
+    if (!aircraftPosition) {
+      alert('No aircraft GPS position is available yet. Start Live Aircraft GPS first.');
+      return;
+    }
+    map.flyTo([aircraftPosition.lat, aircraftPosition.lon], Math.max(map.getZoom(), 15), { animate: true, duration: 1.2 });
+  }
+
+  function showAll() {
+    const boundsItems = [];
+    validPointsFromRows().forEach(p => boundsItems.push([p.lat, p.lon]));
+    if (currentELT) boundsItems.push([currentELT.lat, currentELT.lon]);
+    if (aircraftPosition) boundsItems.push([aircraftPosition.lat, aircraftPosition.lon]);
+
+    if (boundsItems.length === 0) {
+      alert('No points, ELT estimate, or aircraft GPS position available.');
+      return;
+    }
+
+    const bounds = L.latLngBounds(boundsItems);
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.25), { maxZoom: 15 });
   }
 
   // -----------------------------
@@ -718,8 +1072,16 @@
   // -----------------------------
   document.getElementById('addPointBtn').addEventListener('click', () => addPoint());
   document.getElementById('recalcBtn').addEventListener('click', recalculate);
+  document.getElementById('centerEltBtn').addEventListener('click', centerOnELT);
+  document.getElementById('showAllBtn').addEventListener('click', showAll);
+  document.getElementById('startLiveGpsBtn').addEventListener('click', startLiveAircraftGps);
+  document.getElementById('stopLiveGpsBtn').addEventListener('click', stopLiveAircraftGps);
+  document.getElementById('centerAircraftBtn').addEventListener('click', centerOnAircraft);
   document.getElementById('clearBtn').addEventListener('click', () => {
     points = [];
+    currentELT = null;
+    currentCircle = null;
+    latestNavigation = null;
     renderRows();
     recalculate();
   });
