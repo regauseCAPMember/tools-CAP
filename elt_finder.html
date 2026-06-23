@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>ERL / ELT Finder - Circumcenter, Directional, Wing Null</title>
+  <title>ELT Finder - Circumcenter, Directional, Wing Null</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.34/esri/themes/dark/main.css" />
   <script src="https://js.arcgis.com/4.34/"></script>
   <style>
@@ -24,7 +24,7 @@
 <div class="app">
   <section class="left">
     <div class="card sticky">
-      <h1>ERL / ELT Finder</h1>
+      <h1>ELT Finder</h1>
       <div class="summary">
         <div><small>Estimated ELT</small><span id="eltStatus" class="big warn">Not enough geometry</span><br><span id="eltDmm" class="mono muted">DMM: --</span><br><span id="eltDms" class="mono muted">DMS: --</span></div>
         <div><small>Live Team / Aircraft</small><span id="liveStatus" class="big muted">Not tracking</span><br><span id="liveDmm" class="mono muted">DMM: --</span><br><span id="liveDms" class="mono muted">DMS: --</span></div>
@@ -240,18 +240,36 @@ async function startLiveTracking(userRequested=true){
 function stopLiveTracking(){ if(liveWatch){navigator.geolocation.clearWatch(liveWatch); liveWatch=null;} setLiveButton(); updateAll(); }
 function recordGpsOnce(){ if(!navigator.geolocation){alert('Geolocation is not available.'); return;} navigator.geolocation.getCurrentPosition(pos=>{ $('latDmm').value=coordToDMM(pos.coords.latitude,true); $('lonDmm').value=coordToDMM(pos.coords.longitude,false); syncFromDmm(); addPoint(pos.coords.latitude,pos.coords.longitude); }, err=>alert('GPS error: '+err.message), {enableHighAccuracy:true, maximumAge:5000, timeout:20000}); }
 
-require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layers/FeatureLayer','esri/Graphic','esri/geometry/Point','esri/geometry/Polyline','esri/geometry/Circle','esri/geometry/Extent'], function(Map,MapView,GraphicsLayer,FeatureLayer,Graphic,Point,Polyline,Circle,Extent){
+require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layers/FeatureLayer','esri/Graphic','esri/geometry/Point','esri/geometry/Polyline','esri/geometry/Circle','esri/geometry/Extent','esri/geometry/support/webMercatorUtils'], function(Map,MapView,GraphicsLayer,FeatureLayer,Graphic,Point,Polyline,Circle,Extent,webMercatorUtils){
   graphicsLayer=new GraphicsLayer({title:'ELT Finder Graphics'});
   capGridLayer=new GraphicsLayer({title:'Approx CAP 15 Minute / 7.5 Minute Grid'});
   const map=new Map({basemap:'hybrid', layers:[capGridLayer, graphicsLayer]});
   view=new MapView({container:'viewDiv', map, center:[-79,33.68], zoom:10, constraints:{snapToZoom:false}});
   try{ countyLayer=new FeatureLayer({url:'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized_Boundaries/FeatureServer/0', title:'Counties', opacity:.85, outFields:['NAME','STATE_NAME'], labelingInfo:[{labelExpressionInfo:{expression:'$feature.NAME'}, symbol:{type:'text',color:'white',haloColor:'black',haloSize:1,font:{size:10,weight:'bold'}}}], renderer:{type:'simple',symbol:{type:'simple-fill',color:[0,0,0,0],outline:{color:[255,255,255,.55],width:1}}}}); map.add(countyLayer); }catch(e){console.warn(e);}
+  let capGridDrawTimer = null;
+  function scheduleCapGridDraw(){
+    if(capGridDrawTimer) cancelAnimationFrame(capGridDrawTimer);
+    capGridDrawTimer = requestAnimationFrame(drawCapGrid);
+  }
+  function geographicExtent(){
+    const e=view && view.extent; if(!e) return null;
+    try{
+      if(e.spatialReference && e.spatialReference.isWebMercator) return webMercatorUtils.webMercatorToGeographic(e);
+      if(e.spatialReference && e.spatialReference.wkid === 4326) return e;
+      const converted = webMercatorUtils.webMercatorToGeographic(e);
+      return converted || e;
+    }catch(err){ console.warn('CAP grid extent conversion failed', err); return null; }
+  }
   function drawCapGrid(){
+    capGridDrawTimer = null;
     if(!capGridLayer || !view || !capGridVisible){ if(capGridLayer) capGridLayer.removeAll(); return; }
-    capGridLayer.removeAll();
-    const e=view.extent; if(!e) return;
+    const e=geographicExtent(); if(!e) return;
     const step=0.25, half=0.125;
-    const xmin=Math.floor(e.xmin/step)*step, xmax=Math.ceil(e.xmax/step)*step, ymin=Math.floor(e.ymin/step)*step, ymax=Math.ceil(e.ymax/step)*step;
+    const xmin=Math.max(-180,Math.floor(e.xmin/step)*step), xmax=Math.min(180,Math.ceil(e.xmax/step)*step);
+    const ymin=Math.max(-90,Math.floor(e.ymin/step)*step), ymax=Math.min(90,Math.ceil(e.ymax/step)*step);
+    const cols=Math.ceil((xmax-xmin)/step), rows=Math.ceil((ymax-ymin)/step);
+    if(cols < 0 || rows < 0 || cols*rows > 240){ capGridLayer.removeAll(); return; }
+    capGridLayer.removeAll();
     const gridLine=(coords,w=1)=>new Graphic({geometry:new Polyline({paths:[coords], spatialReference:{wkid:4326}}), symbol:{type:'simple-line', color:[255,255,255,.38], width:w}});
     const subLine=(coords)=>new Graphic({geometry:new Polyline({paths:[coords], spatialReference:{wkid:4326}}), symbol:{type:'simple-line', color:[255,255,255,.22], width:1, style:'dash'}});
     const label=(lon,lat,txt,size=10)=>new Graphic({geometry:new Point({longitude:lon,latitude:lat}), symbol:{type:'text', text:txt, color:'white', haloColor:'black', haloSize:1, font:{size, weight:'bold'}}});
@@ -266,7 +284,9 @@ require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layer
       if(view.zoom >= 10) capGridLayer.add(label(lon+half, lat+half, `15′ CAP cell\n${coordToDMM(lat+half,true)} ${coordToDMM(lon+half,false)}`, 8));
     } } }
   }
-  view.watch('extent', ()=>drawCapGrid()); view.watch('zoom', ()=>drawCapGrid()); setTimeout(drawCapGrid, 800);
+  view.watch('stationary', isStationary=>{ if(isStationary) scheduleCapGridDraw(); });
+  view.watch('zoom', ()=>scheduleCapGridDraw()); setTimeout(scheduleCapGridDraw, 800);
+  window.__scheduleCapGridDraw = scheduleCapGridDraw;
   view.on('click', ev=>{ if(!$('mapClick').checked) return; const mp=view.toMap({x:ev.x,y:ev.y}); if(mp) addPoint(mp.latitude, mp.longitude); });
   window.__drawMap = function(result){ graphicsLayer.removeAll(); const extPts=[]; const ref=result.ref; const addG=(g)=>graphicsLayer.add(g); const pt=(lon,lat)=>new Point({longitude:lon,latitude:lat}); const marker=(color,shape='circle',size=12)=>({type:'simple-marker',style:shape,color, size, outline:{color:[0,0,0,.9],width:1}}); const text=(txt,color,dy=-18)=>({type:'text',text:txt,color,haloColor:'black',haloSize:1.4,yoffset:dy,font:{size:14,weight:'bold'}}); const lineSym=(color,width=2,dash=null)=>({type:'simple-line',color,width,style:dash||'solid'});
     for(const p of points){ extPts.push([p.lon,p.lat]); const color=p.type==='C'?[47,140,255,1]:[255,210,63,1]; addG(new Graphic({geometry:pt(p.lon,p.lat), symbol:marker(color,p.type==='C'?'circle':'diamond'), popupTemplate:{title:typeName(p.type),content:`${coordToDMM(p.lat,true)}, ${coordToDMM(p.lon,false)}<br>${p.time}`}})); addG(new Graphic({geometry:pt(p.lon,p.lat), symbol:text(p.type, p.type==='C'?'#2f8cff':'#ffd23f')})); }
@@ -281,7 +301,7 @@ require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layer
 function drawMap(result){ if(window.__drawMap) window.__drawMap(result); }
 
 $('latDmm').addEventListener('change',syncFromDmm); $('lonDmm').addEventListener('change',syncFromDmm); $('latDms').addEventListener('change',syncFromDms); $('lonDms').addEventListener('change',syncFromDms); $('method').addEventListener('change',updateMethodUi);
-$('addPoint').onclick=addPointFromForm; $('clearForm').onclick=clearEntry; $('clearAll').onclick=()=>{ if(confirm('Clear all recorded points and ELT estimate?')){points=[];elt=null;updateAll();} }; $('exportLog').onclick=csvExport; $('gpsOnce').onclick=recordGpsOnce; $('toggleLive').onclick=()=> liveWatch?stopLiveTracking():startLiveTracking(true); $('centerElt').onclick=()=>{if(elt&&view)view.goTo({center:[elt.lon,elt.lat],zoom:15});}; $('centerLive').onclick=()=>{if(live&&view)view.goTo({center:[live.lon,live.lat],zoom:15});}; $('fullExtent').onclick=()=>window.__goFull&&window.__goFull(); $('toggleCapGrid').onclick=()=>{capGridVisible=!capGridVisible; $('toggleCapGrid').textContent=capGridVisible?'CAP Grid On':'CAP Grid Off'; if(capGridLayer){capGridLayer.visible=capGridVisible; if(!capGridVisible) capGridLayer.removeAll();} if(view) view.extent=view.extent;};
+$('addPoint').onclick=addPointFromForm; $('clearForm').onclick=clearEntry; $('clearAll').onclick=()=>{ if(confirm('Clear all recorded points and ELT estimate?')){points=[];elt=null;updateAll();} }; $('exportLog').onclick=csvExport; $('gpsOnce').onclick=recordGpsOnce; $('toggleLive').onclick=()=> liveWatch?stopLiveTracking():startLiveTracking(true); $('centerElt').onclick=()=>{if(elt&&view)view.goTo({center:[elt.lon,elt.lat],zoom:15});}; $('centerLive').onclick=()=>{if(live&&view)view.goTo({center:[live.lon,live.lat],zoom:15});}; $('fullExtent').onclick=()=>window.__goFull&&window.__goFull(); $('toggleCapGrid').onclick=()=>{capGridVisible=!capGridVisible; $('toggleCapGrid').textContent=capGridVisible?'CAP Grid On':'CAP Grid Off'; if(capGridLayer){capGridLayer.visible=capGridVisible; if(!capGridVisible) capGridLayer.removeAll(); else if(window.__scheduleCapGridDraw) window.__scheduleCapGridDraw();}};
 updateMethodUi();
 })();
 </script>
