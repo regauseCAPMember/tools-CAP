@@ -83,7 +83,7 @@
 'use strict';
 const R_EARTH_FT = 20925524.9;
 let view, graphicsLayer, countyLayer, capGridLayer;
-let points = [], live = null, livePrev = null, elt = null, liveWatch = null, lastLiveUpdate = 0, liveError = ''; // liveWatch can exist before the first GPS fix arrives
+let points = [], live = null, liveHeadingAnchor = null, elt = null, liveWatch = null, lastLiveUpdate = 0, liveError = ''; // liveWatch can exist before the first GPS fix arrives
 let deviceHeading = null, deviceHeadingSource = '', capGridVisible = true;
 const $ = id => document.getElementById(id);
 const nowIso = () => new Date().toISOString();
@@ -154,17 +154,31 @@ function computeElt(){
 }
 function minIntersectionAngle(lines){ let best=180; for(let i=0;i<lines.length;i++) for(let j=i+1;j<lines.length;j++){ const det=Math.abs(lines[i].v.x*lines[j].v.y-lines[i].v.y*lines[j].v.x); best=Math.min(best, Math.abs(deg(Math.asin(clamp(det,-1,1))))); } return best; }
 function distanceBearing(a,b){ const lat1=rad(a.lat), lat2=rad(b.lat), dLat=lat2-lat1, dLon=rad(b.lon-a.lon); const x=dLon*Math.cos((lat1+lat2)/2)*R_EARTH_FT, y=dLat*R_EARTH_FT; const dist=Math.hypot(x,y); return {distanceFt:dist,bearing:degNorm(deg(Math.atan2(x,y)))}; }
-function bestLiveHeading(pos, prev){
+function bestLiveHeading(pos){
+  const cur = pos && pos.coords ? {lat:pos.coords.latitude, lon:pos.coords.longitude} : null;
   const gpsHeading = pos && pos.coords && Number.isFinite(pos.coords.heading) ? degNorm(pos.coords.heading) : NaN;
-  if(Number.isFinite(gpsHeading)) return {heading:gpsHeading, source:'GPS course'};
-  if(Number.isFinite(deviceHeading)) return {heading:degNorm(deviceHeading), source:deviceHeadingSource || 'device compass'};
-  if(prev && pos && pos.coords){
-    const cur={lat:pos.coords.latitude, lon:pos.coords.longitude};
-    const moved=distanceBearing(prev, cur);
-    // GPS jitter can create false headings; require about 25 ft of movement before accepting course-over-ground.
-    if(moved.distanceFt >= 25) return {heading:moved.bearing, source:'derived from movement'};
+  if(Number.isFinite(gpsHeading)){
+    liveHeadingAnchor = cur || liveHeadingAnchor;
+    return {heading:gpsHeading, source:'GPS course'};
   }
-  return {heading: live && Number.isFinite(live.heading) ? live.heading : NaN, source: live?.headingSource || ''};
+  if(Number.isFinite(deviceHeading)){
+    liveHeadingAnchor = cur || liveHeadingAnchor;
+    return {heading:degNorm(deviceHeading), source:deviceHeadingSource || 'device compass'};
+  }
+  if(cur && !liveHeadingAnchor){
+    liveHeadingAnchor = cur;
+    return {heading: live && Number.isFinite(live.heading) ? live.heading : NaN, source: live?.headingSource || 'waiting for movement'};
+  }
+  if(cur && liveHeadingAnchor){
+    const moved = distanceBearing(liveHeadingAnchor, cur);
+    // Critical: do not move the heading anchor until motion exceeds the jitter threshold.
+    // Otherwise each small GPS wobble becomes the new baseline and destroys course-over-ground heading.
+    if(moved.distanceFt >= 25){
+      liveHeadingAnchor = cur;
+      return {heading:moved.bearing, source:'derived from movement'};
+    }
+  }
+  return {heading: live && Number.isFinite(live.heading) ? live.heading : NaN, source: live?.headingSource || 'waiting for 25+ ft movement'};
 }
 function handleDeviceOrientation(ev){
   let h = NaN, src = '';
@@ -212,9 +226,7 @@ async function startLiveTracking(userRequested=true){
     const t=Date.now();
     if(t-lastLiveUpdate<30000 && live) return;
     lastLiveUpdate=t; liveError='';
-    const prev = live ? {lat:live.lat, lon:live.lon, heading:live.heading, headingSource:live.headingSource} : null;
-    const h = bestLiveHeading(pos, prev);
-    livePrev = prev;
+    const h = bestLiveHeading(pos);
     live={type:'T', lat:pos.coords.latitude, lon:pos.coords.longitude, heading:h.heading, headingSource:h.source, time:nowIso()};
     updateAll();
   }, err=>{
