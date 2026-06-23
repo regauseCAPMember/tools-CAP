@@ -83,7 +83,7 @@
 'use strict';
 const R_EARTH_FT = 20925524.9;
 let view, graphicsLayer, countyLayer, capGridLayer;
-let points = [], live = null, elt = null, liveWatch = null, lastLiveUpdate = 0;
+let points = [], live = null, elt = null, liveWatch = null, lastLiveUpdate = 0, liveError = ''; // liveWatch can exist before the first GPS fix arrives
 const $ = id => document.getElementById(id);
 const nowIso = () => new Date().toISOString();
 const degNorm = d => ((Number(d)%360)+360)%360;
@@ -161,15 +161,36 @@ function addPoint(lat,lon, extra={}){ const type=$('method').value; let p={id:cr
 function clearEntry(){ ['latDmm','lonDmm','latDms','lonDms','bearing','notes'].forEach(id=>$(id).value=''); }
 function updateMethodUi(){ const m=$('method').value; $('bearingBox').style.display=(m==='D'||m==='W')?'block':'none'; $('sideBox').style.display=m==='W'?'block':'none'; $('bearingLabel').textContent=m==='W'?'Aircraft Heading':'Bearing to ELT'; }
 function renderTable(){ const tb=$('pointsTable').querySelector('tbody'); tb.innerHTML=''; for(const p of points){ const tr=document.createElement('tr'); const used=p.type==='W'?p.bearing:p.bearing; tr.innerHTML=`<td><span class="tag ${p.type.toLowerCase()}">${p.type}</span> ${typeName(p.type)}</td><td class="mono">${p.time}</td><td class="mono">${coordToDMM(p.lat,true)}</td><td class="mono">${coordToDMM(p.lon,false)}</td><td class="mono">${coordToDMS(p.lat,true)}</td><td class="mono">${coordToDMS(p.lon,false)}</td><td>${p.type==='C'?'--':(p.type==='W'?'Hdg '+fmtNum(p.heading,1):fmtNum(p.bearing,1))}</td><td>${Number.isFinite(used)?fmtNum(used,1):'--'}</td><td>${p.side||'--'}</td><td>${p.notes||''}</td><td><button class="mini danger" data-del="${p.id}">Delete</button></td>`; tb.appendChild(tr); } tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{points=points.filter(p=>p.id!==b.dataset.del);updateAll();}); }
+function setLiveButton(){ $('toggleLive').textContent = liveWatch ? 'Stop Live Tracking' : 'Start Live Tracking'; }
 function updateCards(result){ if(elt){ $('eltStatus').textContent=`${elt.method}: ${elt.quality}`; $('eltStatus').className='big '+(elt.quality.startsWith('Good')?'ok':elt.quality.startsWith('Fair')?'warn':'bad'); $('eltDmm').textContent=`DMM: ${coordToDMM(elt.lat,true)}, ${coordToDMM(elt.lon,false)}`; $('eltDms').textContent=`DMS: ${coordToDMS(elt.lat,true)}, ${coordToDMS(elt.lon,false)}`; $('qualityInfo').textContent=`Method=${elt.method}; Lines=${elt.linesUsed}; RMS=${fmtNum(elt.rms,0)} ft; Radius~${fmtNum(elt.radius,0)} ft; Min angle=${fmtNum(elt.minAngle,1)} deg`; } else { $('eltStatus').textContent='Not enough geometry'; $('eltStatus').className='big warn'; $('eltDmm').textContent='DMM: --'; $('eltDms').textContent='DMS: --'; $('qualityInfo').textContent=result.quality; }
-  if(live){ $('liveStatus').textContent='Tracking'; $('liveStatus').className='big ok'; $('liveDmm').textContent=`DMM: ${coordToDMM(live.lat,true)}, ${coordToDMM(live.lon,false)}`; $('liveDms').textContent=`DMS: ${coordToDMS(live.lat,true)}, ${coordToDMS(live.lon,false)}`; } else { $('liveStatus').textContent='Not tracking'; $('liveStatus').className='big muted'; $('liveDmm').textContent='DMM: --'; $('liveDms').textContent='DMS: --'; }
-  if(elt && live){ const nb=distanceBearing(live,elt); $('navInfo').textContent=`${fmtNum(nb.bearing,0)}° / ${fmtNum(nb.distanceFt,0)} ft`; let rel=null; if(Number.isFinite(live.heading)){ rel=((nb.bearing-live.heading+540)%360)-180; $('turnInfo').textContent=Math.abs(rel)<5?`On path, error ${fmtNum(rel,1)}°`:`Turn ${Math.abs(rel).toFixed(1)}° ${rel>0?'right':'left'}`; $('needle').style.transform=`rotate(${rel}deg)`; } else { $('turnInfo').textContent='Turn: live heading unavailable; bearing shown true.'; $('needle').style.transform=`rotate(0deg)`; } } else { $('navInfo').textContent='--'; $('turnInfo').textContent='Turn: --'; $('needle').style.transform='rotate(0deg)'; }
+  setLiveButton();
+  if(live){ $('liveStatus').textContent=liveWatch?'Tracking':'Last GPS fix'; $('liveStatus').className='big ok'; $('liveDmm').textContent=`DMM: ${coordToDMM(live.lat,true)}, ${coordToDMM(live.lon,false)}`; $('liveDms').textContent=`DMS: ${coordToDMS(live.lat,true)}, ${coordToDMS(live.lon,false)}`; }
+  else if(liveWatch){ $('liveStatus').textContent='Waiting for GPS fix'; $('liveStatus').className='big warn'; $('liveDmm').textContent='DMM: permission/fix pending'; $('liveDms').textContent=liveError?`GPS: ${liveError}`:'DMS: --'; }
+  else { $('liveStatus').textContent=liveError?'GPS not tracking':'Not tracking'; $('liveStatus').className='big muted'; $('liveDmm').textContent=liveError?`GPS: ${liveError}`:'DMM: --'; $('liveDms').textContent='DMS: --'; }
+  if(elt && live){ const nb=distanceBearing(live,elt); $('navInfo').textContent=`${fmtNum(nb.bearing,0)}° / ${fmtNum(nb.distanceFt,0)} ft`; let rel=null; if(Number.isFinite(live.heading)){ rel=((nb.bearing-live.heading+540)%360)-180; $('turnInfo').textContent=Math.abs(rel)<5?`On path, error ${fmtNum(rel,1)}°`:`Turn ${Math.abs(rel).toFixed(1)}° ${rel>0?'right':'left'}`; $('needle').style.transform=`rotate(${rel}deg)`; } else { $('turnInfo').textContent='ADF waiting for GPS course/heading; bearing shown true.'; $('needle').style.transform=`rotate(0deg)`; } } else { $('navInfo').textContent='--'; $('turnInfo').textContent=liveWatch && !live?'Turn: waiting for live GPS fix.':'Turn: --'; $('needle').style.transform='rotate(0deg)'; }
 }
 function updateAll(){ const result=computeElt(); renderTable(); updateCards(result); drawMap(result); if(elt && !liveWatch) startLiveTracking(false); }
 
 function csvExport(){ const rows=[['RecordType','Timestamp','Latitude_DMM','Longitude_DMM','Latitude_DMS','Longitude_DMS','Latitude_DD','Longitude_DD','BearingOrHeading','ELT_Bearing_Used','WingSide','Method','Notes']]; for(const p of points){ rows.push([typeName(p.type),p.time,coordToDMM(p.lat,true),coordToDMM(p.lon,false),coordToDMS(p.lat,true),coordToDMS(p.lon,false),p.lat,p.lon,p.type==='W'?p.heading:p.bearing,p.bearing,p.side||'',p.type,p.notes||'']); } if(elt) rows.push(['Estimated ELT',nowIso(),coordToDMM(elt.lat,true),coordToDMM(elt.lon,false),coordToDMS(elt.lat,true),coordToDMS(elt.lon,false),elt.lat,elt.lon,'','','',elt.method,`Quality=${elt.quality}; RMS_ft=${elt.rms}; Radius_ft=${elt.radius}; Lines=${elt.linesUsed}`]); if(live) rows.push(['Live Team/Aircraft',nowIso(),coordToDMM(live.lat,true),coordToDMM(live.lon,false),coordToDMS(live.lat,true),coordToDMS(live.lon,false),live.lat,live.lon,live.heading||'','','','T','Current live tracking point']); const blob=new Blob([rows.map(r=>r.map(escapeCsv).join(',')).join('\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='elt_finder_log_'+new Date().toISOString().replace(/[:.]/g,'')+'.csv'; a.click(); URL.revokeObjectURL(a.href); }
-function startLiveTracking(userRequested=true){ if(!navigator.geolocation){ if(userRequested) alert('Geolocation is not available in this browser.'); return; } if(liveWatch) return; liveWatch=navigator.geolocation.watchPosition(pos=>{ const t=Date.now(); if(t-lastLiveUpdate<30000 && live) return; lastLiveUpdate=t; live={type:'T', lat:pos.coords.latitude, lon:pos.coords.longitude, heading:Number.isFinite(pos.coords.heading)?pos.coords.heading:live?.heading, time:nowIso()}; updateAll(); }, err=>{ if(userRequested) alert('GPS error: '+err.message); }, {enableHighAccuracy:true, maximumAge:10000, timeout:20000}); $('toggleLive').textContent='Stop Live Tracking'; }
-function stopLiveTracking(){ if(liveWatch){navigator.geolocation.clearWatch(liveWatch); liveWatch=null;} $('toggleLive').textContent='Start Live Tracking'; updateAll(); }
+function startLiveTracking(userRequested=true){
+  if(!navigator.geolocation){ liveError='Geolocation is not available in this browser.'; updateAll(); if(userRequested) alert(liveError); return; }
+  if(liveWatch) return;
+  liveError=''; setLiveButton(); $('liveStatus').textContent='Waiting for GPS fix'; $('liveStatus').className='big warn'; $('liveDmm').textContent='DMM: permission/fix pending'; $('liveDms').textContent='DMS: --';
+  liveWatch=navigator.geolocation.watchPosition(pos=>{
+    const t=Date.now();
+    if(t-lastLiveUpdate<30000 && live) return;
+    lastLiveUpdate=t; liveError='';
+    live={type:'T', lat:pos.coords.latitude, lon:pos.coords.longitude, heading:Number.isFinite(pos.coords.heading)?pos.coords.heading:live?.heading, time:nowIso()};
+    updateAll();
+  }, err=>{
+    liveError=err && err.message ? err.message : 'Unable to acquire GPS fix.';
+    if(liveWatch){ navigator.geolocation.clearWatch(liveWatch); liveWatch=null; }
+    setLiveButton(); updateAll();
+    if(userRequested) alert('GPS error: '+liveError);
+  }, {enableHighAccuracy:true, maximumAge:10000, timeout:20000});
+  setLiveButton();
+}
+function stopLiveTracking(){ if(liveWatch){navigator.geolocation.clearWatch(liveWatch); liveWatch=null;} setLiveButton(); updateAll(); }
 function recordGpsOnce(){ if(!navigator.geolocation){alert('Geolocation is not available.'); return;} navigator.geolocation.getCurrentPosition(pos=>{ $('latDmm').value=coordToDMM(pos.coords.latitude,true); $('lonDmm').value=coordToDMM(pos.coords.longitude,false); syncFromDmm(); addPoint(pos.coords.latitude,pos.coords.longitude); }, err=>alert('GPS error: '+err.message), {enableHighAccuracy:true, maximumAge:5000, timeout:20000}); }
 
 require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layers/FeatureLayer','esri/Graphic','esri/geometry/Point','esri/geometry/Polyline','esri/geometry/Circle','esri/geometry/Extent'], function(Map,MapView,GraphicsLayer,FeatureLayer,Graphic,Point,Polyline,Circle,Extent){
@@ -198,3 +219,4 @@ updateMethodUi();
 </script>
 </body>
 </html>
+
