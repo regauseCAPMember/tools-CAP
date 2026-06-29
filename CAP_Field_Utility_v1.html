@@ -1,88 +1,40 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CAP Field Utility</title>
+
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>CAP Field Utility v2</title>
 <style>
-body{background:#1b1b1b;color:#fff;font-family:Arial,sans-serif;margin:20px}
-.card{border:1px solid #555;border-radius:8px;padding:12px;margin-bottom:14px}
-h2{margin:0 0 8px}
-.big{font-size:48px;font-weight:bold}
-button{margin:3px;padding:8px 12px}
-.label{color:#9cf}
-.value{font-size:20px}
-</style>
-</head>
-<body>
-<div class="card">
-<h2>Zulu Time</h2>
-<div id="ztime" class="big"></div>
-<div id="zdate" class="value"></div>
-<button onclick="copyZuluTime()">Copy Time</button>
-<button onclick="copyZuluDate()">Copy Date</button>
-<button onclick="copyZuluDateTime()">Copy Date/Time</button>
-</div>
+body{background:#202124;color:white;font-family:Arial;padding:16px}
+.card{border:1px solid #666;border-radius:8px;padding:12px;margin:10px 0}
+.big{font-size:42px;font-weight:bold} button{margin:2px;padding:6px 10px}
+</style></head><body>
+<div class='card'><h2>Zulu Time</h2><div id=z class=big></div><div id=zd></div>
+<button onclick="copy(z.textContent)">Copy Time</button>
+<button onclick="copy(zd.textContent)">Copy Date</button>
+<button onclick="copy(zd.textContent+' '+z.textContent)">Copy Date/Time</button></div>
 
-<div class="card">
-<h2>GPS</h2>
-<button id="gpsBtn" onclick="toggleGPS()">Start GPS</button>
-<p><span class="label">DDM:</span> <span id="ddm">--</span> <button onclick="copyField('ddm')">Copy</button></p>
-<p><span class="label">DMS:</span> <span id="dms">--</span> <button onclick="copyField('dms')">Copy</button></p>
-<p><span class="label">MGRS:</span> <span id="mgrs">Not implemented</span> <button onclick="copyField('mgrs')">Copy</button></p>
-<p><span class="label">Heading:</span> <span id="heading">--</span>° <button onclick="copyField('heading')">Copy</button></p>
-<p><span class="label">Altitude:</span> <span id="alt">--</span> ft <button onclick="copyField('alt')">Copy</button></p>
-</div>
+<div class='card'><h2>Local Military Time</h2><div id=mil class=big></div></div>
+<div class='card'><h2>Local Date & Time</h2><div id=loc></div><div id=info></div></div>
 
+<div class='card'><h2>GPS</h2><button id=g onclick="toggleGPS()">Start GPS</button>
+<div>DDM: <span id=ddm>--</span> <button onclick="copy(ddm.textContent)">Copy DDM</button></div>
+<div>DMS: <span id=dms>--</span> <button onclick="copy(dms.textContent)">Copy DMS</button></div>
+<div>MGRS: <span id=mgrs>Future Version</span> <button onclick="copy(mgrs.textContent)">Copy MGRS</button></div>
+<div>Heading: <span id=head>--</span>° <button onclick="copy(head.textContent)">Copy Heading</button></div>
+<div>Altitude: <span id=alt>--</span> ft <button onclick="copy(alt.textContent)">Copy Altitude</button></div></div>
 <script>
-let watchId=null,last=null;
-function pad(n){return String(n).padStart(2,"0")}
-function updClock(){
- let d=new Date();
- document.getElementById("ztime").textContent=pad(d.getUTCHours())+pad(d.getUTCMinutes())+pad(d.getUTCSeconds())+"Z";
- document.getElementById("zdate").textContent=(pad(d.getUTCMonth()+1)+"/"+pad(d.getUTCDate())+"/"+d.getUTCFullYear());
+const map={0:'Z',1:'A',2:'B',3:'C',4:'D',5:'E',6:'F',7:'G',8:'H',9:'I',10:'K',11:'L',12:'M','-1':'N','-2':'O','-3':'P','-4':'Q','-5':'R','-6':'S','-7':'T','-8':'U','-9':'V','-10':'W','-11':'X','-12':'Y'};
+let w=null,last=null;
+function p(n){return String(n).padStart(2,'0')}
+function upd(){let d=new Date();
+z.textContent=p(d.getUTCHours())+p(d.getUTCMinutes())+p(d.getUTCSeconds())+'Z';
+zd.textContent=p(d.getUTCMonth()+1)+'/'+p(d.getUTCDate())+'/'+d.getUTCFullYear();
+let off=-d.getTimezoneOffset()/60,l=map[String(off)]||'?';
+mil.textContent=p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+l;
+loc.textContent=d.toLocaleString();
+info.innerHTML='Zone: '+Intl.DateTimeFormat().resolvedOptions().timeZone+'<br>UTC'+(off>=0?'+':'')+off;
 }
-setInterval(updClock,1000);updClock();
-function copyText(t){navigator.clipboard.writeText(t);}
-function copyZuluTime(){copyText(document.getElementById("ztime").textContent);}
-function copyZuluDate(){copyText(document.getElementById("zdate").textContent);}
-function copyZuluDateTime(){copyText(document.getElementById("zdate").textContent+" "+document.getElementById("ztime").textContent);}
-function copyField(id){copyText(document.getElementById(id).textContent);}
-function ddm(v,lat){
- let h=v>=0?(lat?"N":"E"):(lat?"S":"W");v=Math.abs(v);
- let d=Math.floor(v),m=(v-d)*60;
- return `${h}${d}° ${m.toFixed(3)}'`;
-}
-function dms(v,lat){
- let h=v>=0?(lat?"N":"E"):(lat?"S":"W");v=Math.abs(v);
- let d=Math.floor(v),m=(v-d)*60,mi=Math.floor(m),s=(m-mi)*60;
- return `${h}${d}° ${mi}' ${s.toFixed(2)}"`;
-}
-function bearing(a,b){
- let φ1=a.lat*Math.PI/180,φ2=b.lat*Math.PI/180;
- let λ1=a.lon*Math.PI/180,λ2=b.lon*Math.PI/180;
- let y=Math.sin(λ2-λ1)*Math.cos(φ2);
- let x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1);
- return (Math.atan2(y,x)*180/Math.PI+360)%360;
-}
-function toggleGPS(){
- if(watchId==null){
-   watchId=navigator.geolocation.watchPosition(pos=>{
-      let lat=pos.coords.latitude,lon=pos.coords.longitude;
-      document.getElementById("ddm").textContent=ddm(lat,true)+" "+ddm(lon,false);
-      document.getElementById("dms").textContent=dms(lat,true)+" "+dms(lon,false);
-      document.getElementById("alt").textContent=pos.coords.altitude? (pos.coords.altitude*3.28084).toFixed(0):"--";
-      if(last){
-        document.getElementById("heading").textContent=bearing(last,{lat:lat,lon:lon}).toFixed(0);
-      }
-      last={lat:lat,lon:lon};
-   },e=>alert(e.message),{enableHighAccuracy:true});
-   document.getElementById("gpsBtn").textContent="Stop GPS";
- } else {
-   navigator.geolocation.clearWatch(watchId);
-   watchId=null;
-   document.getElementById("gpsBtn").textContent="Start GPS";
- }
-}
-</script>
-</body></html>
+setInterval(upd,1000);upd();
+function copy(t){navigator.clipboard.writeText(t);}
+function fmt(v,lat,dmsf){let h=v>=0?(lat?'N':'E'):(lat?'S':'W');v=Math.abs(v);let D=Math.floor(v),M=(v-D)*60;if(!dmsf)return `${h}${D}° ${M.toFixed(3)}'`;let Mi=Math.floor(M),S=(M-Mi)*60;return `${h}${D}° ${Mi}' ${S.toFixed(2)}"`;}
+function bear(a,b){let p1=a.lat*Math.PI/180,p2=b.lat*Math.PI/180,l1=a.lon*Math.PI/180,l2=b.lon*Math.PI/180;let y=Math.sin(l2-l1)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(l2-l1);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
+function toggleGPS(){if(w){navigator.geolocation.clearWatch(w);w=null;g.textContent='Start GPS';return;}
+w=navigator.geolocation.watchPosition(pos=>{let la=pos.coords.latitude,lo=pos.coords.longitude;ddm.textContent=fmt(la,true,false)+' '+fmt(lo,false,false);dms.textContent=fmt(la,true,true)+' '+fmt(lo,false,true);alt.textContent=pos.coords.altitude?(pos.coords.altitude*3.28084).toFixed(0):'--';if(last)head.textContent=bear(last,{lat:la,lon:lo}).toFixed(0);last={lat:la,lon:lo};},{enableHighAccuracy:true});g.textContent='Stop GPS';}
+</script></body></html>
