@@ -1,0 +1,36 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+body{margin:0;background:#000;color:#0f0;font-family:monospace;padding:20px}
+.card{border:1px solid #0f0;padding:15px;margin:10px 0}.big{font-size:56px}.mid{font-size:34px}
+button{font-size:20px;padding:10px;background:#111;color:#0f0;border:1px solid #0f0}
+</style></head><body>
+<div class='card'><h2>Zulu Time</h2><div id='z' class='big'>--</div><button id='copy'>Copy Zulu DTG</button><div id='status'></div></div>
+<div class='card'><h2>Local Military</h2><div id='mil' class='mid'>--</div></div>
+<div class='card'><h2>Local Time</h2><div id='loc'></div><div id='info'></div></div>
+<script>
+const map={0:'Z',1:'A',2:'B',3:'C',4:'D',5:'E',6:'F',7:'G',8:'H',9:'I',10:'K',11:'L',12:'M','-1':'N','-2':'O','-3':'P','-4':'Q','-5':'R','-6':'S','-7':'T','-8':'U','-9':'V','-10':'W','-11':'X','-12':'Y'};
+const mons=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+function isDST(){let y=(new Date()).getFullYear();let a=new Date(y,0,1).getTimezoneOffset(),b=new Date(y,6,1).getTimezoneOffset();return new Date().getTimezoneOffset()<Math.max(a,b);}
+function upd(){
+ let d=new Date();
+ let z=d.toISOString();
+ let zh=z.substr(11,2),zm=z.substr(14,2),zs=z.substr(17,2);
+ document.getElementById('z').textContent=zh+zm+zs+"Z";
+ let off=-d.getTimezoneOffset()/60;
+ let L=map[String(off)]||map[off]||"?";
+ let hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0'),ss=String(d.getSeconds()).padStart(2,'0');
+ document.getElementById('mil').textContent=hh+mm+ss+L;
+ document.getElementById('loc').textContent=d.toLocaleString();
+ document.getElementById('info').innerHTML="Zone: "+Intl.DateTimeFormat().resolvedOptions().timeZone+"<br>UTC"+(off>=0?"+":"")+off+"<br>DST: "+(isDST()?"Yes":"No");
+}
+upd();setInterval(upd,1000);
+document.getElementById('copy').onclick=()=>{
+ let d=new Date();
+ let txt=String(d.getUTCDate()).padStart(2,'0')+
+ String(d.getUTCHours()).padStart(2,'0')+
+ String(d.getUTCMinutes()).padStart(2,'0')+"Z "+
+ mons[d.getUTCMonth()]+" "+d.getUTCFullYear();
+ navigator.clipboard.writeText(txt);
+ document.getElementById('status').textContent="Copied: "+txt;
+};
+</script></body></html>
