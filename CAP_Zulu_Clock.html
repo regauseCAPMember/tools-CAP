@@ -24,13 +24,15 @@ function upd(){
  document.getElementById('info').innerHTML="Zone: "+Intl.DateTimeFormat().resolvedOptions().timeZone+"<br>UTC"+(off>=0?"+":"")+off+"<br>DST: "+(isDST()?"Yes":"No");
 }
 upd();setInterval(upd,1000);
-document.getElementById('copy').onclick=()=>{
- let d=new Date();
- let txt=String(d.getUTCDate()).padStart(2,'0')+
- String(d.getUTCHours()).padStart(2,'0')+
- String(d.getUTCMinutes()).padStart(2,'0')+"Z "+
- mons[d.getUTCMonth()]+" "+d.getUTCFullYear();
- navigator.clipboard.writeText(txt);
- document.getElementById('status').textContent="Copied: "+txt;
+document.getElementById('copy').onclick = () => {
+    let d = new Date();
+    let month = String(d.getUTCMonth() + 1).padStart(2,'0');
+    let day   = String(d.getUTCDate()).padStart(2,'0');
+    let year  = d.getUTCFullYear();
+    let hour  = String(d.getUTCHours()).padStart(2,'0');
+    let min   = String(d.getUTCMinutes()).padStart(2,'0');
+    let txt = `${month}/${day}/${year} ${hour}${min}Z`;
+    navigator.clipboard.writeText(txt);
+    document.getElementById('status').textContent = "Copied: " + txt;
 };
 </script></body></html>
