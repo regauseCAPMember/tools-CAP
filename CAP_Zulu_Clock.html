@@ -1,38 +1,258 @@
-<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zulu Clock with Live GPS and CAP Grid</title>
 <style>
-body{margin:0;background:#000;color:#0f0;font-family:monospace;padding:20px}
-.card{border:1px solid #0f0;padding:15px;margin:10px 0}.big{font-size:56px}.mid{font-size:34px}
-button{font-size:20px;padding:10px;background:#111;color:#0f0;border:1px solid #0f0}
-</style></head><body>
-<div class='card'><h2>Zulu Time</h2><div id='z' class='big'>--</div><button id='copy'>Copy Zulu DTG</button><div id='status'></div></div>
-<div class='card'><h2>Local Military</h2><div id='mil' class='mid'>--</div></div>
-<div class='card'><h2>Local Time</h2><div id='loc'></div><div id='info'></div></div>
+body{margin:0;background:#000;color:#90EE90;font-family:monospace;padding:20px}
+.card{border:1px solid #90EE90;padding:15px;margin:10px 0}
+.big{font-size:56px}
+.mid{font-size:34px}
+.small{font-size:18px;line-height:1.5}
+button{font-size:20px;padding:10px;background:#111;color:#90EE90;border:1px solid #90EE90;margin-top:8px}
+a{color:#90EE90}
+.label{font-weight:bold}
+</style>
+</head>
+<body>
+
+<div class="card">
+<h2>Zulu Time</h2>
+<div id="z" class="big">--</div>
+<button id="copy">Copy Zulu DTG</button>
+<div id="status"></div>
+</div>
+
+<div class="card">
+<h2>Local Military</h2>
+<div id="mil" class="mid">--</div>
+</div>
+
+<div class="card">
+<h2>Local Time</h2>
+<div id="loc"></div>
+<div id="info"></div>
+</div>
+
+<div class="card">
+<h2>Live GPS Coordinates</h2>
+<div class="small">
+<div><span class="label">Degrees Minutes Decimal:</span></div>
+<div id="dmm">Acquiring GPS...</div>
+<button id="copyDmm">Copy DMM</button>
+
+<br><br>
+
+<div><span class="label">Degrees Minutes Seconds Decimal:</span></div>
+<div id="dms">Acquiring GPS...</div>
+<button id="copyDms">Copy DMS</button>
+</div>
+</div>
+
+<div class="card">
+<h2>Current CAP Grid</h2>
+<div id="capgrid" class="mid">Waiting for GPS...</div>
+<div id="capgridstatus" class="small"></div>
+</div>
+
 <script>
-const map={0:'Z',1:'A',2:'B',3:'C',4:'D',5:'E',6:'F',7:'G',8:'H',9:'I',10:'K',11:'L',12:'M','-1':'N','-2':'O','-3':'P','-4':'Q','-5':'R','-6':'S','-7':'T','-8':'U','-9':'V','-10':'W','-11':'X','-12':'Y'};
-const mons=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
-function isDST(){let y=(new Date()).getFullYear();let a=new Date(y,0,1).getTimezoneOffset(),b=new Date(y,6,1).getTimezoneOffset();return new Date().getTimezoneOffset()<Math.max(a,b);}
+const map={0:"Z",1:"A",2:"B",3:"C",4:"D",5:"E",6:"F",7:"G",8:"H",9:"I",10:"K",11:"L",12:"M","-1":"N","-2":"O","-3":"P","-4":"Q","-5":"R","-6":"S","-7":"T","-8":"U","-9":"V","-10":"W","-11":"X","-12":"Y"};
+
+let lastDmm="";
+let lastDms="";
+let lastLat=null;
+let lastLon=null;
+let lastCapGrid="";
+
+function isDST(){
+ let y=(new Date()).getFullYear();
+ let a=new Date(y,0,1).getTimezoneOffset();
+ let b=new Date(y,6,1).getTimezoneOffset();
+ return new Date().getTimezoneOffset()<Math.max(a,b);
+}
+
 function upd(){
  let d=new Date();
  let z=d.toISOString();
- let zh=z.substr(11,2),zm=z.substr(14,2),zs=z.substr(17,2);
- document.getElementById('z').textContent=zh+zm+zs+"Z";
+ document.getElementById("z").textContent=z.substr(11,2)+z.substr(14,2)+z.substr(17,2)+"Z";
+
  let off=-d.getTimezoneOffset()/60;
  let L=map[String(off)]||map[off]||"?";
- let hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0'),ss=String(d.getSeconds()).padStart(2,'0');
- document.getElementById('mil').textContent=hh+mm+ss+L;
- document.getElementById('loc').textContent=d.toLocaleString();
- document.getElementById('info').innerHTML="Zone: "+Intl.DateTimeFormat().resolvedOptions().timeZone+"<br>UTC"+(off>=0?"+":"")+off+"<br>DST: "+(isDST()?"Yes":"No");
+
+ document.getElementById("mil").textContent=
+   String(d.getHours()).padStart(2,"0")+
+   String(d.getMinutes()).padStart(2,"0")+
+   String(d.getSeconds()).padStart(2,"0")+L;
+
+ document.getElementById("loc").textContent=d.toLocaleString();
+
+ document.getElementById("info").innerHTML=
+   "Zone: "+Intl.DateTimeFormat().resolvedOptions().timeZone+
+   "<br>UTC"+(off>=0?"+":"")+off+
+   "<br>DST: "+(isDST()?"Yes":"No");
 }
-upd();setInterval(upd,1000);
-document.getElementById('copy').onclick = () => {
-    let d = new Date();
-    let month = String(d.getUTCMonth() + 1).padStart(2,'0');
-    let day   = String(d.getUTCDate()).padStart(2,'0');
-    let year  = d.getUTCFullYear();
-    let hour  = String(d.getUTCHours()).padStart(2,'0');
-    let min   = String(d.getUTCMinutes()).padStart(2,'0');
-    let txt = `${month}/${day}/${year} ${hour}${min}Z`;
-    navigator.clipboard.writeText(txt);
-    document.getElementById('status').textContent = "Copied: " + txt;
+
+upd();
+setInterval(upd,1000);
+
+document.getElementById("copy").onclick=()=>{
+ let d=new Date();
+ let txt=`${String(d.getUTCMonth()+1).padStart(2,"0")}/${String(d.getUTCDate()).padStart(2,"0")}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,"0")}${String(d.getUTCMinutes()).padStart(2,"0")}Z`;
+ navigator.clipboard.writeText(txt);
+ document.getElementById("status").textContent="Copied: "+txt;
 };
-</script></body></html>
+
+document.getElementById("copyDmm").onclick=()=>{
+ if(lastDmm){
+   navigator.clipboard.writeText(lastDmm);
+   document.getElementById("capgridstatus").textContent="Copied DMM: "+lastDmm;
+ }
+};
+
+document.getElementById("copyDms").onclick=()=>{
+ if(lastDms){
+   navigator.clipboard.writeText(lastDms);
+   document.getElementById("capgridstatus").textContent="Copied DMS: "+lastDms;
+ }
+};
+
+function toDMM(value,isLat){
+ const dir=value>=0?(isLat?"N":"E"):(isLat?"S":"W");
+ const abs=Math.abs(value);
+ const deg=Math.floor(abs);
+ const min=(abs-deg)*60;
+ return `${deg}° ${min.toFixed(4)}' ${dir}`;
+}
+
+function toDMS(value,isLat){
+ const dir=value>=0?(isLat?"N":"E"):(isLat?"S":"W");
+ const abs=Math.abs(value);
+ const deg=Math.floor(abs);
+ const minFloat=(abs-deg)*60;
+ const min=Math.floor(minFloat);
+ const sec=(minFloat-min)*60;
+ return `${deg}° ${min}' ${sec.toFixed(2)}" ${dir}`;
+}
+
+function updateCoordinateText(lat,lon){
+ lastLat=lat;
+ lastLon=lon;
+
+ lastDmm=`${toDMM(lat,true)}, ${toDMM(lon,false)}`;
+ lastDms=`${toDMS(lat,true)}, ${toDMS(lon,false)}`;
+
+ document.getElementById("dmm").textContent=lastDmm;
+ document.getElementById("dms").textContent=lastDms;
+}
+
+// IMPORTANT:
+// Layer 0 = Grids
+// Layer 1 = Subgrids
+// The CAP-style display label is the CONVENTION field on the Subgrids layer.
+// Example expected value: CLT - 225C
+const capSubgridUrl="https://services9.arcgis.com/U0vgiXgwLpyQDfbW/ArcGIS/rest/services/Civil_Air_Patrol_Search_and_Rescue_SAR_Grids/FeatureServer/1/query";
+
+function getFirstTextValue(attributes, possibleNames){
+ for(const name of possibleNames){
+   const key=Object.keys(attributes).find(k=>k.toUpperCase()===name.toUpperCase());
+   if(key && attributes[key]!==null && attributes[key]!==undefined && String(attributes[key]).trim()!==""){
+     return String(attributes[key]).trim();
+   }
+ }
+ return "";
+}
+
+function pickCapGridConvention(attributes){
+ // Primary correct field from the Subgrids layer.
+ const convention=getFirstTextValue(attributes,["CONVENTION"]);
+ if(convention){ return convention; }
+
+ // Fallbacks only if CONVENTION is missing or blank.
+ const cell=getFirstTextValue(attributes,["CELL"]);
+ const suffix=getFirstTextValue(attributes,["SUFFIX"]);
+
+ if(cell && suffix){
+   // Avoid duplicating suffix if CELL already includes it.
+   if(cell.toUpperCase().endsWith(suffix.toUpperCase())){
+     return cell;
+   }
+   return cell + suffix;
+ }
+
+ if(cell){ return cell; }
+ if(suffix){ return suffix; }
+
+ console.log("CAP Subgrid attributes missing expected fields:", attributes);
+ return JSON.stringify(attributes);
+}
+
+function lookupGrid(lat,lon){
+ document.getElementById("capgridstatus").textContent="Looking up CAP Subgrid CONVENTION from live GPS...";
+
+ const queryUrl=
+   capSubgridUrl+
+   "?f=json"+
+   "&geometry="+encodeURIComponent(lon+","+lat)+
+   "&geometryType=esriGeometryPoint"+
+   "&inSR=4326"+
+   "&spatialRel=esriSpatialRelIntersects"+
+   "&outFields=CONVENTION,CELL,SUFFIX"+
+   "&returnGeometry=false";
+
+ fetch(queryUrl)
+ .then(r=>r.json())
+ .then(j=>{
+   if(j.error){
+     document.getElementById("capgrid").textContent="CAP Grid Error";
+     document.getElementById("capgridstatus").textContent=j.error.message||"ArcGIS service returned an error.";
+     return;
+   }
+
+   if(j.features && j.features.length){
+     const attributes=j.features[0].attributes;
+     console.log("CAP Subgrid attributes returned by ESRI:", attributes);
+
+     const label=pickCapGridConvention(attributes);
+     lastCapGrid=label;
+     document.getElementById("capgrid").textContent=label;
+     document.getElementById("capgridstatus").innerHTML=
+       "Matched from live GPS using Subgrids.CONVENTION:<br>"+
+       "DMM: "+lastDmm+"<br>"+
+       "DMS: "+lastDms;
+   }else{
+     document.getElementById("capgrid").textContent="No CAP Grid Found";
+     document.getElementById("capgridstatus").textContent="The current live GPS point did not intersect a CAP Subgrid polygon.";
+   }
+ })
+ .catch(e=>{
+   document.getElementById("capgrid").textContent="Lookup Error";
+   document.getElementById("capgridstatus").textContent="Could not query the CAP Subgrid service.";
+   console.error(e);
+ });
+}
+
+if(navigator.geolocation){
+ navigator.geolocation.watchPosition(
+   p=>{
+     const lat=p.coords.latitude;
+     const lon=p.coords.longitude;
+     updateCoordinateText(lat,lon);
+     lookupGrid(lat,lon);
+   },
+   e=>{
+     document.getElementById("dmm").textContent="GPS unavailable: "+e.message;
+     document.getElementById("dms").textContent="GPS unavailable: "+e.message;
+     document.getElementById("capgrid").textContent="GPS unavailable";
+     document.getElementById("capgridstatus").textContent=e.message;
+   },
+   {enableHighAccuracy:true,maximumAge:5000,timeout:10000}
+ );
+}else{
+ document.getElementById("dmm").textContent="Geolocation not supported";
+ document.getElementById("dms").textContent="Geolocation not supported";
+ document.getElementById("capgrid").textContent="Geolocation not supported";
+}
+</script>
+</body>
+</html>
