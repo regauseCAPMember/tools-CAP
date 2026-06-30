@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ELT Finder - CAP Grid</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.34/esri/themes/dark/main.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://js.arcgis.com/4.34/"></script>
+</head>
+<body>
+<div class="app">
+  <section class="left">
+    <div class="card sticky">
+      <h1>ELT Finder</h1>
+      <div class="summary">
+        <div><small>Estimated ELT</small><span id="eltStatus" class="big warn">Not enough geometry</span><br><span id="eltDmm" class="mono muted">DMM: --</span><br><span id="eltDms" class="mono muted">DMS: --</span><br><span id="eltCapGrid" class="mono muted">CAP Grid: --</span></div>
+        <div><small>Live Team / Aircraft</small><span id="liveStatus" class="big muted">Not tracking</span><br><span id="liveDmm" class="mono muted">DMM: --</span><br><span id="liveDms" class="mono muted">DMS: --</span><br><span id="liveCapGrid" class="mono muted">CAP Grid: --</span></div>
+        <div><small>Heading / Distance to ELT</small><span id="navInfo" class="big muted">--</span><br><span id="turnInfo" class="mono muted">Turn: --</span></div>
+        <div><small>Geometry Quality</small><span id="qualityInfo" class="mono muted">--</span></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="gpsOnce" class="good mini">Record GPS Coordinate</button>
+        <button id="toggleLive" class="mini">Start Live Tracking</button>
+        <button id="exportLog" class="mini">Export Log CSV</button>
+      </div>
+      <div class="adf" title="Relative bearing needle: straight up means on course" style="margin-top:12px"><span class="adflabel n">N</span><span class="adflabel e">E</span><span class="adflabel s">S</span><span class="adflabel w">W</span><div id="needle" class="needle"></div><div class="plane">▲</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Point Entry</h2>
+      <div class="grid3">
+        <div><label>Method</label><select id="method"><option value="C">Circumcenter Point</option><option value="D">Directional Bearing to ELT</option><option value="W">Wing Null Left / Right</option></select></div>
+        <div id="sideBox" style="display:none"><label>Wing Null Side</label><select id="wingSide"><option value="L">Left Wing</option><option value="R">Right Wing</option></select></div>
+        <div id="bearingBox" style="display:none"><label id="bearingLabel">Bearing to ELT</label><input id="bearing" inputmode="decimal" placeholder="degrees" /></div>
+        <div><label>Latitude DD MM.MM</label><input id="latDmm" placeholder="33 40.500 N" /></div>
+        <div><label>Longitude DD MM.MM</label><input id="lonDmm" placeholder="79 00.000 W" /></div>
+        <div><label>Latitude DD MM SS.SS</label><input id="latDms" placeholder="33 40 30.0 N" /></div>
+        <div><label>Longitude DD MM SS.SS</label><input id="lonDms" placeholder="79 00 00.0 W" /></div>
+        <div class="span3"><label>Notes</label><input id="notes" placeholder="radio, crew, signal strength, CAP grid, road reference" /></div>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="addPoint" class="good">Add Manual Point</button><button id="clearForm" class="ghost">Clear Entry</button><button id="clearAll" class="danger">Clear All</button></div>
+      <p class="muted">Coordinate entry accepts DD MM.MM or DD MM SS.SS, with optional N/S/E/W. Negative longitude also works. Directional bearings are true degrees unless you intentionally enter magnetic-adjusted values.</p>
+    </div>
+
+    <div class="card">
+      <h2>Map Entry</h2>
+      <div class="row"><label style="width:auto"><input id="mapClick" type="checkbox" checked style="width:auto"> Click map to record points</label><span class="muted">Default click method is Circumcenter unless changed above.</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Recorded Points</h2>
+      <div class="tablewrap"><table id="pointsTable"><thead><tr><th>Type</th><th>Time</th><th>Lat DMM</th><th>Lon DMM</th><th>Lat DMS</th><th>Lon DMS</th><th>Bearing / Heading</th><th>ELT Bearing Used</th><th>Side</th><th>Notes</th><th>Action</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="card" id="mathNotes" style="display:none">
+      <h2>Math Notes / Field Caveats</h2>
+      <p class="muted">Circumcenter points create perpendicular bisectors of chords. Directional and Wing Null points create rays from known positions. The estimator uses all available lines; it only uses a two-circumcenter perpendicular when other directional lines can select the practical crossing side. Long-distance accuracy is approximated with a local tangent plane centered on the input points, which is appropriate for SAR-scale work but not geodetic survey work.</p>
+      <p class="warn">Devil's-advocate checks included: near-parallel lines, duplicate points, bad bearings, left/right wing normalization, RMS fit error, and geometry quality warnings.</p>
+    </div>
+  </section>
+
+  <section class="mapwrap">
+    <div class="mapbuttons"><button id="centerElt" class="mini">Center ELT</button><button id="centerLive" class="mini">Center Live</button><button id="fullExtent" class="mini">Full Extent</button><button id="toggleCapGrid" class="mini">CAP Grid On</button></div>
+    <div id="viewDiv"></div>
+  </section>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
