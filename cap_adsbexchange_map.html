@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>CAP Zulu GPS + ADS-B Exchange Aircraft Map</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/dark/main.css" />
+  <script src="https://js.arcgis.com/4.31/"></script>
+  <style>
+    :root{
+      --bg:#06110d;--panel:#0b1b14;--panel2:#10251b;--text:#d9ffe8;--muted:#9cd7b3;
+      --line:#2fcf73;--warn:#ffe08a;--bad:#ff9a9a;--accent:#7dffb2;
+    }
+    html,body{padding:0;margin:0;height:100%;width:100%;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif;}
+    body{display:flex;flex-direction:column;overflow:hidden;}
+    #top{background:linear-gradient(180deg,#092015,#06110d);border-bottom:1px solid #1f7a46;padding:8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.35);z-index:2;}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:3px 0;}
+    .tile{background:rgba(16,37,27,.9);border:1px solid rgba(47,207,115,.45);border-radius:8px;padding:5px 8px;min-height:25px;}
+    .tile b{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.04em;margin-right:5px;}
+    .value{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;}
+    #map{flex:1;min-height:300px;}
+    button,select,input,textarea{background:#0e2419;color:var(--text);border:1px solid #2fcf73;border-radius:7px;padding:7px 9px;font-size:14px;}
+    button{cursor:pointer;font-weight:bold;} button:hover{background:#153724;}
+    input{min-width:290px;} textarea{width:100%;height:90px;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #controls{position:absolute;right:12px;top:112px;z-index:5;width:min(460px,calc(100vw - 24px));background:rgba(6,17,13,.94);border:1px solid #2fcf73;border-radius:10px;padding:10px;box-shadow:0 6px 24px rgba(0,0,0,.45);}
+    #controls.collapsed .body{display:none;} #controls h3{margin:0 0 8px;font-size:15px;color:var(--accent);}
+    .small{font-size:12px;color:var(--muted);line-height:1.35}.error{color:var(--bad)}.ok{color:var(--accent)}.warn{color:var(--warn)}
+    .esri-ui-top-right{top:10px!important;}
+    @media(max-width:750px){#controls{top:auto;bottom:12px}.value{font-size:13px}.tile{padding:4px 6px}input{min-width:190px}}
+  </style>
+</head>
+<body>
+  <div id="top">
+    <div class="row">
+      <div class="tile"><b>Zulu</b><span id="zulu" class="value">--</span></div>
+      <div class="tile"><b>Local</b><span id="local" class="value">--</span></div>
+      <div class="tile"><b>GPS</b><span id="gps" class="value">Waiting...</span></div>
+      <div class="tile"><b>CAP Grid</b><span id="capgrid" class="value">--</span></div>
+    </div>
+    <div class="row">
+      <div class="tile"><b>Heading</b><span id="heading" class="value">--</span></div>
+      <div class="tile"><b>Speed</b><span id="speed" class="value">--</span></div>
+      <div class="tile"><b>Aircraft</b><span id="aircraftCount" class="value">0</span></div>
+      <div class="tile"><b>Status</b><span id="status" class="value">Loading map...</span></div>
+    </div>
+  </div>
+  <div id="map"></div>
+  <div id="controls">
+    <div class="row" style="justify-content:space-between"><h3>Aircraft Source</h3><button id="togglePanel">Hide</button></div>
+    <div class="body">
+      <div class="row">
+        <select id="sourceMode">
+          <option value="adsbxApi">ADS-B Exchange API / RapidAPI</option>
+          <option value="customJson">Custom ADS-B Exchange-compatible JSON URL</option>
+          <option value="tar1090">Local receiver tar1090 aircraft.json</option>
+          <option value="paste">Paste JSON</option>
+        </select>
+      </div>
+      <div class="small">
+        ADS-B Exchange live API access normally requires an API key/subscription. This page supports ADS-B Exchange v2/readsb-style JSON where aircraft are in <b>aircraft[]</b> with fields such as <b>lat</b>, <b>lon</b>, <b>flight</b>, <b>gs</b>, <b>track</b>, and <b>alt_baro</b>.
+      </div>
+      <div id="apiFields">
+        <div class="row"><input id="rapidHost" value="adsbexchange-com1.p.rapidapi.com" placeholder="RapidAPI host" /></div>
+        <div class="row"><input id="apiKey" value="" placeholder="RapidAPI key / ADS-B Exchange API key" /></div>
+        <div class="small">Default v2 route used: <span class="value">/v2/lat/{lat}/lon/{lon}/dist/{nm}/</span></div>
+      </div>
+      <div id="customFields" style="display:none">
+        <div class="row"><input id="customUrl" value="" placeholder="https://your-endpoint.example/aircraft.json" /></div>
+      </div>
+      <div id="tarFields" style="display:none">
+        <div class="row"><input id="tarUrl" value="http://adsbexchange.local/tar1090/data/aircraft.json" /></div>
+        <div class="small">Works only if your iPad/iPhone can reach your local ADS-B receiver and its web server allows browser access.</div>
+      </div>
+      <div id="pasteFields" style="display:none">
+        <textarea id="pasteJson" placeholder='Paste ADS-B Exchange/readsb JSON here, e.g. {"aircraft":[...]}'></textarea>
+      </div>
+      <div class="row">
+        <button id="startGps">Start GPS</button><button id="centerMe">Center Me</button><button id="refreshAircraft">Refresh Aircraft</button><button id="openSource">Open Source URL</button>
+      </div>
+      <div class="row">
+        <label><input id="autoRefresh" type="checkbox" checked style="min-width:auto"> Auto refresh</label>
+        <select id="refreshSeconds"><option>15</option><option selected>30</option><option>60</option><option>120</option></select>
+        <label><input id="filterExtent" type="checkbox" checked style="min-width:auto"> Map extent only</label>
+      </div>
+      <div id="log" class="small warn">Ready.</div>
+    </div>
+  </div>
+<script>
+(function(){
+  const CAP_URL = "https://services9.arcgis.com/U0vgiXgwLpyQDfbW/ArcGIS/rest/services/Civil_Air_Patrol_Search_and_Rescue_SAR_Grids/FeatureServer";
+  const els = Object.fromEntries(["zulu","local","gps","capgrid","heading","speed","aircraftCount","status","sourceMode","apiKey","rapidHost","customUrl","tarUrl","pasteJson","log","apiFields","customFields","tarFields","pasteFields","autoRefresh","refreshSeconds","filterExtent"].map(id=>[id,document.getElementById(id)]));
+  let view,map,Graphic,GraphicsLayer,FeatureLayer,Point,webMercatorUtils,geometryEngine;
+  let meLayer, aircraftLayer, currentPosition=null, watchId=null, lastPos=null, timer=null, capSubgridLayer=null;
+  function log(msg, cls="warn"){ els.log.className="small "+cls; els.log.textContent=msg; }
+  function setStatus(msg){ els.status.textContent=msg; }
+  function fmt2(n){return String(n).padStart(2,"0");}
+  function updateClock(){ const d=new Date(); els.zulu.textContent=`${fmt2(d.getUTCDate())}${fmt2(d.getUTCHours())}${fmt2(d.getUTCMinutes())}Z ${d.toLocaleString('en-US',{month:'short',timeZone:'UTC'}).toUpperCase()} ${d.getUTCFullYear()}`; els.local.textContent=d.toLocaleString([], {weekday:'short', year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
+  setInterval(updateClock,1000); updateClock();
+  function metersPerSecToKt(v){ return v==null||isNaN(v)?null:v*1.943844; }
+  function bearing(a,b){ const lat1=a.lat*Math.PI/180, lat2=b.lat*Math.PI/180, dLon=(b.lon-a.lon)*Math.PI/180; const y=Math.sin(dLon)*Math.cos(lat2); const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon); return (Math.atan2(y,x)*180/Math.PI+360)%360; }
+  function distanceM(a,b){ const R=6371000, p1=a.lat*Math.PI/180, p2=b.lat*Math.PI/180, dp=(b.lat-a.lat)*Math.PI/180, dl=(b.lon-a.lon)*Math.PI/180; const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+  function showGps(p){ currentPosition={lat:p.coords.latitude, lon:p.coords.longitude, accuracy:p.coords.accuracy, time:p.timestamp}; els.gps.textContent=`${currentPosition.lat.toFixed(5)}, ${currentPosition.lon.toFixed(5)} ±${Math.round(currentPosition.accuracy||0)}m`; let hdg=p.coords.heading; let spd=metersPerSecToKt(p.coords.speed); if((hdg==null||isNaN(hdg))&&lastPos){ const dt=(currentPosition.time-lastPos.time)/1000, dm=distanceM(lastPos,currentPosition); if(dt>1 && dm>3){ hdg=bearing(lastPos,currentPosition); spd=(dm/dt)*1.943844; }} els.heading.textContent=hdg==null||isNaN(hdg)?"--":`${Math.round(hdg).toString().padStart(3,"0")}°`; els.speed.textContent=spd==null||isNaN(spd)?"--":`${spd.toFixed(1)} kt`; lastPos=currentPosition; plotMe(); queryCapGrid(); }
+  function gpsErr(e){ setStatus("GPS error"); log(`GPS error: ${e.message||e.code}`,"error"); }
+  function startGps(){ if(!navigator.geolocation){log("This browser does not support geolocation.","error");return;} if(watchId!=null) navigator.geolocation.clearWatch(watchId); setStatus("Starting GPS..."); watchId=navigator.geolocation.watchPosition(showGps,gpsErr,{enableHighAccuracy:true,maximumAge:1000,timeout:15000}); }
+  function plotMe(){ if(!currentPosition||!view) return; meLayer.removeAll(); meLayer.add(new Graphic({geometry:{type:"point",longitude:currentPosition.lon,latitude:currentPosition.lat},symbol:{type:"simple-marker",style:"circle",size:14,color:[0,255,120,.95],outline:{color:[255,255,255,1],width:2}},attributes:{title:"Current GPS"},popupTemplate:{title:"Current GPS",content:`Lat/Lon: ${currentPosition.lat.toFixed(6)}, ${currentPosition.lon.toFixed(6)}`}})); }
+  async function queryCapGrid(){ if(!currentPosition||!capSubgridLayer) return; try{ const q=capSubgridLayer.createQuery(); q.geometry=new Point({longitude:currentPosition.lon,latitude:currentPosition.lat,spatialReference:{wkid:4326}}); q.spatialRelationship="intersects"; q.outFields=["CONVENTION","Convention","convention","GRID","SUBGRID"]; q.returnGeometry=false; const r=await capSubgridLayer.queryFeatures(q); const f=r.features&&r.features[0]; const a=f&&f.attributes||{}; els.capgrid.textContent=a.CONVENTION||a.Convention||a.convention||a.GRID||a.SUBGRID||"Not found"; }catch(err){ els.capgrid.textContent="Query failed"; }}
+  function aircraftLabel(a){ return (a.flight||a.r||a.hex||"Aircraft").trim(); }
+  function aircraftLatLon(a){ if(typeof a.lat==="number" && typeof a.lon==="number") return [a.lat,a.lon]; if(a.lastPosition && typeof a.lastPosition.lat==="number" && typeof a.lastPosition.lon==="number") return [a.lastPosition.lat,a.lastPosition.lon]; return null; }
+  function inView(lat,lon){ if(!view||!view.extent||!els.filterExtent.checked) return true; const pt=new Point({longitude:lon,latitude:lat,spatialReference:{wkid:4326}}); const mp=webMercatorUtils.geographicToWebMercator(pt); return view.extent.contains(mp); }
+  function plotAircraft(json){ aircraftLayer.removeAll(); const arr = Array.isArray(json.aircraft)?json.aircraft:(Array.isArray(json.states)?json.states:[]); let count=0; for(const item of arr){ let a=item; if(Array.isArray(item)){ a={hex:item[0],flight:(item[1]||"").trim(),lon:item[5],lat:item[6],alt_baro:item[7],gs:item[9],track:item[10]}; }
+      const ll=aircraftLatLon(a); if(!ll) continue; const [lat,lon]=ll; if(!inView(lat,lon)) continue; const label=aircraftLabel(a); const gs=a.gs??a.speed??null; const trk=a.track??a.true_track??null; const alt=a.alt_baro??a.alt_geom??null; count++;
+      aircraftLayer.add(new Graphic({geometry:{type:"point",longitude:lon,latitude:lat},symbol:{type:"simple-marker",style:"triangle",size:11,angle:trk||0,color:[255,224,80,.95],outline:{color:[40,30,0,1],width:1}},attributes:{label,hex:a.hex||"",gs,track:trk,alt},popupTemplate:{title:label,content:`ICAO: ${a.hex||""}<br>Altitude: ${alt??""}<br>Groundspeed: ${gs??""} kt<br>Track: ${trk??""}°`}}));
+      aircraftLayer.add(new Graphic({geometry:{type:"point",longitude:lon,latitude:lat},symbol:{type:"text",text:label,color:[255,255,210,1],haloColor:[0,0,0,1],haloSize:1,font:{size:10,weight:"bold"},xoffset:18,yoffset:8}}));
+    }
+    els.aircraftCount.textContent=String(count); setStatus(`Aircraft plotted: ${count}`); log(`Aircraft data loaded. Total source records: ${arr.length}; plotted: ${count}.`,"ok"); }
+  function extentParams(){ if(view&&view.extent){ const ex=webMercatorUtils.webMercatorToGeographic(view.extent); return {lamin:Math.max(-90,ex.ymin),lomin:Math.max(-180,ex.xmin),lamax:Math.min(90,ex.ymax),lomax:Math.min(180,ex.xmax)}; } if(currentPosition) return {lat:currentPosition.lat, lon:currentPosition.lon, dist:80}; return {lat:34.0,lon:-79.0,dist:120}; }
+  function radiusFromExtentNm(){ if(!view||!view.extent) return 80; const ex=webMercatorUtils.webMercatorToGeographic(view.extent); const mid={lat:(ex.ymin+ex.ymax)/2,lon:(ex.xmin+ex.xmax)/2}; const corner={lat:ex.ymax,lon:ex.xmax}; return Math.max(5,Math.min(250,Math.ceil(distanceM(mid,corner)/1852))); }
+  function sourceUrl(){ const mode=els.sourceMode.value; if(mode==="customJson") return els.customUrl.value.trim(); if(mode==="tar1090") return els.tarUrl.value.trim(); const p=extentParams(); const lat=currentPosition?.lat ?? p.lat ?? 34.0; const lon=currentPosition?.lon ?? p.lon ?? -79.0; const dist=radiusFromExtentNm(); return `https://${els.rapidHost.value.trim()}/v2/lat/${lat.toFixed(4)}/lon/${lon.toFixed(4)}/dist/${dist}/`; }
+  async function refreshAircraft(){ const mode=els.sourceMode.value; try{ if(mode==="paste"){ const txt=els.pasteJson.value.trim(); if(!txt){log("Paste ADS-B JSON first.","error");return;} plotAircraft(JSON.parse(txt)); return; }
+      const url=sourceUrl(); if(!url){log("Enter a source URL.","error");return;} log(`Fetching aircraft: ${url}`); const headers={"Accept":"application/json"}; if(mode==="adsbxApi"){ const key=els.apiKey.value.trim(); if(key){ headers["X-RapidAPI-Key"]=key; headers["X-RapidAPI-Host"]=els.rapidHost.value.trim(); }} const resp=await fetch(url,{headers,cache:"no-store"}); if(!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`); const json=await resp.json(); plotAircraft(json); }catch(err){ setStatus("Aircraft refresh failed"); log(`Aircraft refresh failed: ${err.message||err}. If this is CORS or API-key related on iPad/iPhone, use Paste JSON, a local receiver that permits browser access, or an API endpoint that sends CORS headers.`,"error"); }}
+  function setupTimer(){ if(timer) clearInterval(timer); if(els.autoRefresh.checked){ timer=setInterval(refreshAircraft, Number(els.refreshSeconds.value)*1000); }}
+  document.getElementById("startGps").onclick=startGps; document.getElementById("centerMe").onclick=()=>{ if(currentPosition&&view) view.goTo({center:[currentPosition.lon,currentPosition.lat],zoom:9}); };
+  document.getElementById("refreshAircraft").onclick=refreshAircraft; document.getElementById("openSource").onclick=()=>{ const u=sourceUrl(); if(u) window.open(u,"_blank"); };
+  document.getElementById("togglePanel").onclick=()=>{ const c=document.getElementById("controls"); c.classList.toggle("collapsed"); document.getElementById("togglePanel").textContent=c.classList.contains("collapsed")?"Show":"Hide"; };
+  els.sourceMode.onchange=()=>{ els.apiFields.style.display=els.sourceMode.value==="adsbxApi"?"block":"none"; els.customFields.style.display=els.sourceMode.value==="customJson"?"block":"none"; els.tarFields.style.display=els.sourceMode.value==="tar1090"?"block":"none"; els.pasteFields.style.display=els.sourceMode.value==="paste"?"block":"none"; };
+  els.autoRefresh.onchange=setupTimer; els.refreshSeconds.onchange=setupTimer;
+  require(["esri/Map","esri/views/MapView","esri/layers/FeatureLayer","esri/layers/GraphicsLayer","esri/Graphic","esri/geometry/Point","esri/geometry/support/webMercatorUtils","esri/geometry/geometryEngine"], function(Map,MapView,FL,GL,G,P,WM,GE){
+    FeatureLayer=FL; GraphicsLayer=GL; Graphic=G; Point=P; webMercatorUtils=WM; geometryEngine=GE;
+    map=new Map({basemap:"hybrid"});
+    const subgridLayer=new FeatureLayer({url:CAP_URL+"/1",title:"CAP Subgrids",outFields:["*"],opacity:.75,renderer:{type:"simple",symbol:{type:"simple-fill",style:"none",outline:{color:[0,220,210,.75],width:.65,style:"dash"}}},labelingInfo:[{labelExpressionInfo:{expression:"$feature.CONVENTION"},symbol:{type:"text",color:[180,255,235,.95],haloColor:[0,0,0,.9],haloSize:1,font:{size:9,weight:"bold"}},labelPlacement:"always-horizontal"}],labelsVisible:true});
+    const gridLayer=new FeatureLayer({url:CAP_URL+"/0",title:"CAP Grids",outFields:["*"],opacity:.95,renderer:{type:"simple",symbol:{type:"simple-fill",style:"none",outline:{color:[60,255,120,1],width:1.8}}},labelingInfo:[{labelExpressionInfo:{expression:"DefaultValue($feature.CONVENTION, $feature.Convention, $feature.GRID)"},symbol:{type:"text",color:[210,255,210,1],haloColor:[0,0,0,1],haloSize:1.3,font:{size:12,weight:"bold"}},labelPlacement:"always-horizontal"}],labelsVisible:true});
+    capSubgridLayer=subgridLayer; map.add(subgridLayer); map.add(gridLayer); meLayer=new GL({title:"Current GPS"}); aircraftLayer=new GL({title:"ADS-B Aircraft"}); map.addMany([aircraftLayer,meLayer]);
+    view=new MapView({container:"map",map,center:[-79.0,34.0],zoom:8,constraints:{snapToZoom:false}});
+    view.when(()=>{ setStatus("Map ready"); log("Tap Start GPS. Aircraft source is ADS-B Exchange/readsb JSON compatible.","ok"); setupTimer(); });
+    view.watch("stationary", v=>{ if(v && els.autoRefresh.checked) refreshAircraft(); });
+  });
+})();
+</script>
+</body>
+</html>
