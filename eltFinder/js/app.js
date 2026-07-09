@@ -14,7 +14,7 @@ const $ = id => document.getElementById(id);
 const nowIso = () => new Date().toISOString();
 const degNorm = d => ((Number(d)%360)+360)%360;
 const rad = d => d*Math.PI/180, deg = r => r*180/Math.PI;
-const typeName = t => t==='C'?'Circumcenter':t==='D'?'Directional':t==='W'?'Wing Null':t==='E'?'ELT':'Track';
+const typeName = t => t==='C'?'Circumcenter':t==='D'?'Directional':t==='E'?'ELT':'Track';
 function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
 function fmtNum(v,n=5){return Number.isFinite(v)?v.toFixed(n):'--';}
 function escapeCsv(v){v = String(v ?? ''); return /[",\n]/.test(v) ? '"'+v.replaceAll('"','""')+'"' : v;}
@@ -63,17 +63,16 @@ function closestPointToLines(lines){
 }
 function perpendicularDistance(pt,line){ const dx=pt.x-line.p.x, dy=pt.y-line.p.y; return Math.abs(dx*line.v.y-dy*line.v.x); }
 function buildLines(ref){
-  const lines=[]; const c=points.filter(p=>p.type==='C'), d=points.filter(p=>p.type==='D'||p.type==='W');
-  for(const p of d){ const b = p.type==='W' ? wingEltBearing(p.heading, p.side) : p.bearing; if(Number.isFinite(b)) lines.push(lineFromPointBearing(p,b,ref,typeName(p.type),p.id)); }
+  const lines=[]; const c=points.filter(p=>p.type==='C'), d=points.filter(p=>p.type==='D');
+  for(const p of d){ const b = p.bearing; if(Number.isFinite(b)) lines.push(lineFromPointBearing(p,b,ref,typeName(p.type),p.id)); }
   if(c.length>=2){ for(let i=0;i<c.length;i++) for(let j=i+1;j<c.length;j++){ const l=bisectorLine(c[i],c[j],ref,`C${i+1}-C${j+1}`); if(l) lines.push(l); } }
   return lines;
 }
-function wingEltBearing(heading, side){ if(!Number.isFinite(Number(heading))) return NaN; return degNorm(Number(heading) + (side==='L' ? -90 : 90)); }
 function computeElt(){
-  const ref=refCenter(), lines=buildLines(ref), dirCount=points.filter(p=>p.type==='D'||p.type==='W').length, cCount=points.filter(p=>p.type==='C').length;
-  elt=null; let method='Not enough geometry', quality='Need 3 C, or 2 D/W, or 2 C + 2 D/W', rms=null, radius=null;
+  const ref=refCenter(), lines=buildLines(ref), dirCount=points.filter(p=>p.type==='D').length, cCount=points.filter(p=>p.type==='C').length;
+  elt=null; let method='Not enough geometry', quality='Need 3 C, or 2 D, or 2 C + 2 D', rms=null, radius=null;
   if(lines.length>=2 && (dirCount>=2 || cCount>=3 || (cCount>=2 && dirCount>=2))){
-    const q=closestPointToLines(lines); if(q){ elt={...unproject(q,ref), q, ref}; const errs=lines.map(l=>perpendicularDistance(q,l)); rms=Math.sqrt(errs.reduce((a,e)=>a+e*e,0)/errs.length); radius=rms*2; const worstAngle=minIntersectionAngle(lines); method = cCount>=3 && dirCount===0 ? 'Circumcenter' : cCount===0 ? 'Directional / Wing Null' : 'Hybrid'; quality = rms<500 ? 'Good' : rms<1500 ? 'Fair' : 'Poor / conflicting lines'; elt.method=method; elt.rms=rms; elt.radius=radius; elt.linesUsed=lines.length; elt.quality=quality; elt.minAngle=worstAngle; }
+    const q=closestPointToLines(lines); if(q){ elt={...unproject(q,ref), q, ref}; const errs=lines.map(l=>perpendicularDistance(q,l)); rms=Math.sqrt(errs.reduce((a,e)=>a+e*e,0)/errs.length); radius=rms*2; const worstAngle=minIntersectionAngle(lines); method = cCount>=3 && dirCount===0 ? 'Circumcenter' : cCount===0 ? 'Directional' : 'Hybrid'; quality = rms<500 ? 'Good' : rms<1500 ? 'Fair' : 'Poor / conflicting lines'; elt.method=method; elt.rms=rms; elt.radius=radius; elt.linesUsed=lines.length; elt.quality=quality; elt.minAngle=worstAngle; }
   }
   return {ref, lines, method, quality, rms, radius};
 }
@@ -126,11 +125,83 @@ async function enableCompass(){
 
 function addPointFromForm(){ const lat=parseCoord($('latDmm').value,true) || parseCoord($('latDms').value,true); const lon=parseCoord($('lonDmm').value,false) || parseCoord($('lonDms').value,false); if(!Number.isFinite(lat)||!Number.isFinite(lon)){alert('Enter a valid latitude and longitude.');return;} addPoint(lat,lon); }
 function addPoint(lat,lon, extra={}){ const type=$('method').value; let p={id:crypto.randomUUID(), type, lat, lon, time:nowIso(), notes:$('notes').value.trim(), ...extra}; if(type==='D'){ p.bearing=degNorm(Number($('bearing').value)); if(!Number.isFinite(p.bearing)){alert('Directional method requires a bearing to the ELT.');return;} }
-  if(type==='W'){ p.side=$('wingSide').value; p.heading=degNorm(Number($('bearing').value)); if(!Number.isFinite(p.heading)){alert('Wing Null method requires aircraft heading.');return;} p.bearing=wingEltBearing(p.heading,p.side); }
   points.push(p); updateAll(); }
 function clearEntry(){ ['latDmm','lonDmm','latDms','lonDms','bearing','notes'].forEach(id=>$(id).value=''); }
-function updateMethodUi(){ const m=$('method').value; $('bearingBox').style.display=(m==='D'||m==='W')?'block':'none'; $('sideBox').style.display=m==='W'?'block':'none'; $('bearingLabel').textContent=m==='W'?'Aircraft Heading':'Bearing to ELT'; }
-function renderTable(){ const tb=$('pointsTable').querySelector('tbody'); tb.innerHTML=''; for(const p of points){ const tr=document.createElement('tr'); const used=p.type==='W'?p.bearing:p.bearing; tr.innerHTML=`<td><span class="tag ${p.type.toLowerCase()}">${p.type}</span> ${typeName(p.type)}</td><td class="mono">${p.time}</td><td class="mono">${coordToDMM(p.lat,true)}</td><td class="mono">${coordToDMM(p.lon,false)}</td><td class="mono">${coordToDMS(p.lat,true)}</td><td class="mono">${coordToDMS(p.lon,false)}</td><td>${p.type==='C'?'--':(p.type==='W'?'Hdg '+fmtNum(p.heading,1):fmtNum(p.bearing,1))}</td><td>${Number.isFinite(used)?fmtNum(used,1):'--'}</td><td>${p.side||'--'}</td><td>${p.notes||''}</td><td><button class="mini danger" data-del="${p.id}">Delete</button></td>`; tb.appendChild(tr); } tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{points=points.filter(p=>p.id!==b.dataset.del);updateAll();}); }
+function updateMethodUi(autoFill=false){ const m=$('method').value; $('bearingBox').style.display=m==='D'?'block':'none'; $('bearingLabel').textContent='Bearing to ELT'; if(autoFill) populatePointEntryDefaults(); }
+function renderTable(){ const tb=$('pointsTable').querySelector('tbody'); tb.innerHTML=''; for(const p of points){ const tr=document.createElement('tr'); const used=p.bearing; tr.innerHTML=`<td><span class="tag ${p.type.toLowerCase()}">${p.type}</span> ${typeName(p.type)}</td><td class="mono">${p.time}</td><td class="mono">${coordToDMM(p.lat,true)}</td><td class="mono">${coordToDMM(p.lon,false)}</td><td class="mono">${coordToDMS(p.lat,true)}</td><td class="mono">${coordToDMS(p.lon,false)}</td><td>${p.type==='C'?'--':fmtNum(p.bearing,1)}</td><td>${Number.isFinite(used)?fmtNum(used,1):'--'}</td><td>${p.notes||''}</td><td><button class="mini danger" data-del="${p.id}">Delete</button></td>`; tb.appendChild(tr); } tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{points=points.filter(p=>p.id!==b.dataset.del);updateAll();}); }
+
+function currentHeadingFromPosition(pos){
+  if(pos && pos.coords && Number.isFinite(pos.coords.heading)) return degNorm(pos.coords.heading);
+  if(live && Number.isFinite(live.heading)) return degNorm(live.heading);
+  if(Number.isFinite(deviceHeading)) return degNorm(deviceHeading);
+  return NaN;
+}
+function updateNotesWithCapGrid(label){
+  const gridText = label && label !== '--' ? label : 'Lookup pending';
+  const defaultNote = `CAP Grid: ${gridText}`;
+  const current = $('notes').value.trim();
+  if(!current || current.startsWith('CAP Grid:')) $('notes').value = defaultNote;
+}
+function setPointEntryDefaults(lat, lon, heading, capGridLabel){
+  if(Number.isFinite(lat) && Number.isFinite(lon)){
+    $('latDmm').value = coordToDMM(lat, true);
+    $('lonDmm').value = coordToDMM(lon, false);
+    $('latDms').value = coordToDMS(lat, true);
+    $('lonDms').value = coordToDMS(lon, false);
+  }
+  if(Number.isFinite(heading)) $('bearing').value = fmtNum(degNorm(heading), 1);
+  updateNotesWithCapGrid(capGridLabel);
+}
+async function lookupCapGridLabelOnly(p){
+  if(!p || !capGridLayer || !capSubGridLayer || !EsriPointClass) return '--';
+  const pt = new EsriPointClass({longitude:p.lon, latitude:p.lat, spatialReference:{wkid:4326}});
+  const queryLayer = async (layer) => {
+    const q = layer.createQuery();
+    q.geometry = pt;
+    q.spatialRelationship = 'intersects';
+    q.returnGeometry = false;
+    q.outFields = ['CONVENTION','CELL','SUFFIX'];
+    q.num = 1;
+    return layer.queryFeatures(q);
+  };
+  try{
+    let response = await queryLayer(capSubGridLayer);
+    let feature = response.features && response.features[0];
+    if(!feature){
+      response = await queryLayer(capGridLayer);
+      feature = response.features && response.features[0];
+    }
+    return feature ? capLabelFromAttributes(feature.attributes) : '--';
+  }catch(err){
+    console.warn('Point-entry CAP Grid lookup failed', err);
+    return '--';
+  }
+}
+async function populatePointEntryDefaults(){
+  const method = $('method').value;
+  if(method !== 'C' && method !== 'D') return;
+  if(live && Number.isFinite(live.lat) && Number.isFinite(live.lon)){
+    const label = liveCapGridLabel && liveCapGridLabel !== '--' ? liveCapGridLabel : await lookupCapGridLabelOnly(live);
+    setPointEntryDefaults(live.lat, live.lon, live.heading, label);
+    return;
+  }
+  if(!navigator.geolocation){
+    updateNotesWithCapGrid('GPS unavailable');
+    return;
+  }
+  enableCompass();
+  $('notes').value = $('notes').value.trim() || 'CAP Grid: GPS permission/fix pending';
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    const heading = currentHeadingFromPosition(pos);
+    const label = await lookupCapGridLabelOnly({lat, lon});
+    setPointEntryDefaults(lat, lon, heading, label);
+  }, err=>{
+    updateNotesWithCapGrid('GPS fix unavailable');
+    console.warn('Point-entry GPS default failed', err);
+  }, {enableHighAccuracy:true, maximumAge:10000, timeout:20000});
+}
 
 function capPointKey(p){
   if(!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return '';
@@ -218,7 +289,7 @@ function updateCards(result){ if(elt){ $('eltStatus').textContent=`${elt.method}
 }
 function updateAll(){ const result=computeElt(); renderTable(); updateCards(result); drawMap(result); updateCapGridLookups(); if(elt && !liveWatch) startLiveTracking(false); }
 
-function csvExport(){ const rows=[['RecordType','Timestamp','Latitude_DMM','Longitude_DMM','Latitude_DMS','Longitude_DMS','Latitude_DD','Longitude_DD','BearingOrHeading','ELT_Bearing_Used','WingSide','Method','Notes']]; for(const p of points){ rows.push([typeName(p.type),p.time,coordToDMM(p.lat,true),coordToDMM(p.lon,false),coordToDMS(p.lat,true),coordToDMS(p.lon,false),p.lat,p.lon,p.type==='W'?p.heading:p.bearing,p.bearing,p.side||'',p.type,p.notes||'']); } if(elt) rows.push(['Estimated ELT',nowIso(),coordToDMM(elt.lat,true),coordToDMM(elt.lon,false),coordToDMS(elt.lat,true),coordToDMS(elt.lon,false),elt.lat,elt.lon,'','','',elt.method,`Quality=${elt.quality}; RMS_ft=${elt.rms}; Radius_ft=${elt.radius}; Lines=${elt.linesUsed}`]); if(live) rows.push(['Live Team/Aircraft',nowIso(),coordToDMM(live.lat,true),coordToDMM(live.lon,false),coordToDMS(live.lat,true),coordToDMS(live.lon,false),live.lat,live.lon,Number.isFinite(live.heading)?live.heading:'','','','T','Current live tracking point; headingSource='+(live.headingSource||'none')]); const blob=new Blob([rows.map(r=>r.map(escapeCsv).join(',')).join('\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='elt_finder_log_'+new Date().toISOString().replace(/[:.]/g,'')+'.csv'; a.click(); URL.revokeObjectURL(a.href); }
+function csvExport(){ const rows=[['RecordType','Timestamp','Latitude_DMM','Longitude_DMM','Latitude_DMS','Longitude_DMS','Latitude_DD','Longitude_DD','Bearing_To_ELT','ELT_Bearing_Used','Method','Notes']]; for(const p of points){ rows.push([typeName(p.type),p.time,coordToDMM(p.lat,true),coordToDMM(p.lon,false),coordToDMS(p.lat,true),coordToDMS(p.lon,false),p.lat,p.lon,p.bearing,p.bearing,p.type,p.notes||'']); } if(elt) rows.push(['Estimated ELT',nowIso(),coordToDMM(elt.lat,true),coordToDMM(elt.lon,false),coordToDMS(elt.lat,true),coordToDMS(elt.lon,false),elt.lat,elt.lon,'','',elt.method,`Quality=${elt.quality}; RMS_ft=${elt.rms}; Radius_ft=${elt.radius}; Lines=${elt.linesUsed}`]); if(live) rows.push(['Live Team/Aircraft',nowIso(),coordToDMM(live.lat,true),coordToDMM(live.lon,false),coordToDMS(live.lat,true),coordToDMS(live.lon,false),live.lat,live.lon,Number.isFinite(live.heading)?live.heading:'','','T','Current live tracking point; headingSource='+(live.headingSource||'none')]); const blob=new Blob([rows.map(r=>r.map(escapeCsv).join(',')).join('\n')],{type:'text/csv'}); const dl=document.createElement('a'); dl.href=URL.createObjectURL(blob); dl.download='elt_finder_log_'+new Date().toISOString().replace(/[:.]/g,'')+'.csv'; dl.click(); URL.revokeObjectURL(dl.href); }
 async function startLiveTracking(userRequested=true){
   if(userRequested) enableCompass();
   if(!navigator.geolocation){ liveError='Geolocation is not available in this browser.'; updateAll(); if(userRequested) alert(liveError); return; }
@@ -291,8 +362,8 @@ require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layer
 });
 function drawMap(result){ if(window.__drawMap) window.__drawMap(result); }
 
-$('latDmm').addEventListener('change',syncFromDmm); $('lonDmm').addEventListener('change',syncFromDmm); $('latDms').addEventListener('change',syncFromDms); $('lonDms').addEventListener('change',syncFromDms); $('method').addEventListener('change',updateMethodUi);
+$('latDmm').addEventListener('change',syncFromDmm); $('lonDmm').addEventListener('change',syncFromDmm); $('latDms').addEventListener('change',syncFromDms); $('lonDms').addEventListener('change',syncFromDms); $('method').addEventListener('change',()=>updateMethodUi(true));
 $('addPoint').onclick=addPointFromForm; $('clearForm').onclick=clearEntry; $('clearAll').onclick=()=>{ if(confirm('Clear all recorded points and ELT estimate?')){points=[];elt=null;updateAll();} }; $('exportLog').onclick=csvExport; $('gpsOnce').onclick=recordGpsOnce; $('toggleLive').onclick=()=> liveWatch?stopLiveTracking():startLiveTracking(true); $('centerElt').onclick=()=>{if(elt&&view)view.goTo({center:[elt.lon,elt.lat],zoom:15});}; $('centerLive').onclick=()=>{if(live&&view)view.goTo({center:[live.lon,live.lat],zoom:15});}; $('fullExtent').onclick=()=>window.__goFull&&window.__goFull(); $('toggleCapGrid').onclick=()=>{capGridVisible=!capGridVisible; $('toggleCapGrid').textContent=capGridVisible?'CAP Grid On':'CAP Grid Off'; if(capGridLayer) capGridLayer.visible=capGridVisible; if(capSubGridLayer) capSubGridLayer.visible=capGridVisible; if(capHighlightLayer) capHighlightLayer.visible=capGridVisible;};
-updateMethodUi();
+updateMethodUi(false);
 
 })();
