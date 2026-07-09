@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OpenSky Fetch Test</title>
+ 
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+ 
+        #jsonOutput {
+            color: #00AA00;
+            background-color: black;
+            padding: 10px;
+            white-space: pre-wrap;
+            font-family: Consolas, monospace;
+            height: 500px;
+            overflow: auto;
+            border: 1px solid gray;
+        }
+ 
+        #status {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+ 
+<body>
+ 
+<h2>OpenSky Fetch Test</h2>
+ 
+<button onclick="getAircraft()">
+    Get Aircraft Data
+</button>
+ 
+<div id="status"></div>
+ 
+<div id="jsonOutput">
+Waiting...
+</div>
+ 
+<script>
+ 
+async function getAircraft() {
+ 
+    const statusDiv = document.getElementById("status");
+    const outputDiv = document.getElementById("jsonOutput");
+ 
+    statusDiv.innerHTML = "Calling OpenSky...";
+    outputDiv.textContent = "";
+ 
+    try {
+ 
+        const response =
+            await fetch(
+                "https://opensky-network.org/api/states/all?lamin=32.9&lomin=-80.5&lamax=36.4&lomax=-77.4"
+            );
+ 
+        statusDiv.innerHTML =
+            "HTTP Status: " +
+            response.status +
+            " " +
+            response.statusText;
+ 
+        console.log("Response:", response);
+ 
+        const rawText = await response.text();
+ 
+        console.log("Raw Response:");
+        console.log(rawText);
+ 
+        outputDiv.textContent =
+            "RAW RESPONSE:\n\n" +
+            rawText;
+ 
+        try {
+ 
+            const data = JSON.parse(rawText);
+ 
+            outputDiv.textContent =
+                JSON.stringify(data, null, 4);
+ 
+            console.log("JSON Parsed Successfully");
+ 
+        }
+        catch(parseError) {
+ 
+            console.error(parseError);
+ 
+            outputDiv.textContent =
+                "JSON PARSE ERROR\n\n" +
+                parseError.message +
+                "\n\nRAW RESPONSE:\n\n" +
+                rawText;
+        }
+ 
+    }
+    catch(fetchError) {
+ 
+        console.error(fetchError);
+ 
+        statusDiv.innerHTML =
+            "FETCH FAILED";
+ 
+        outputDiv.textContent =
+            "FETCH ERROR:\n\n" +
+            fetchError.message;
+    }
+ 
+}
+ 
+</script>
+ 
+</body>
+</html>
