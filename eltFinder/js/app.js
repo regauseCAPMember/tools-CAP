@@ -12,12 +12,15 @@ let eltHighlightGraphic = null, liveHighlightGraphic = null;
 const CAP_GRID_SERVICE = 'https://services9.arcgis.com/U0vgiXgwLpyQDfbW/ArcGIS/rest/services/Civil_Air_Patrol_Search_and_Rescue_SAR_Grids/FeatureServer';
 const $ = id => document.getElementById(id);
 const nowIso = () => new Date().toISOString();
+const zuluStamp = (date=new Date()) => { const iso=date.toISOString(); return {iso, zuluDate:iso.slice(0,10), zuluTime:iso.slice(11,19)+'Z'}; };
+const fmtZulu = p => p && p.zuluDate && p.zuluTime ? `${p.zuluDate} ${p.zuluTime}` : (p && p.time ? p.time.replace('T',' ').replace(/\.\d{3}Z$/,'Z') : '--');
 const degNorm = d => ((Number(d)%360)+360)%360;
 const rad = d => d*Math.PI/180, deg = r => r*180/Math.PI;
 const typeName = t => t==='C'?'Circumcenter':t==='D'?'Directional':t==='E'?'ELT':'Track';
 function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
 function fmtNum(v,n=5){return Number.isFinite(v)?v.toFixed(n):'--';}
 function escapeCsv(v){v = String(v ?? ''); return /[",\n]/.test(v) ? '"'+v.replaceAll('"','""')+'"' : v;}
+function escapeHtml(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
 function parseCoord(text, isLat){
   if(text == null || String(text).trim()==='') return NaN;
@@ -123,12 +126,62 @@ async function enableCompass(){
 }
 
 
-function addPointFromForm(){ const lat=parseCoord($('latDmm').value,true) || parseCoord($('latDms').value,true); const lon=parseCoord($('lonDmm').value,false) || parseCoord($('lonDms').value,false); if(!Number.isFinite(lat)||!Number.isFinite(lon)){alert('Enter a valid latitude and longitude.');return;} addPoint(lat,lon); }
-function addPoint(lat,lon, extra={}){ const type=$('method').value; let p={id:crypto.randomUUID(), type, lat, lon, time:nowIso(), notes:$('notes').value.trim(), ...extra}; if(type==='D'){ p.bearing=degNorm(Number($('bearing').value)); if(!Number.isFinite(p.bearing)){alert('Directional method requires a bearing to the ELT.');return;} }
-  points.push(p); updateAll(); }
+function addPointFromForm(){
+  const lat=parseCoord($('latDmm').value,true) || parseCoord($('latDms').value,true);
+  const lon=parseCoord($('lonDmm').value,false) || parseCoord($('lonDms').value,false);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)){alert('Enter a valid latitude and longitude.');return;}
+  addPoint(lat,lon);
+}
+function buildPointRecord(lat, lon, extra={}){
+  const type = extra.type || $('method').value;
+  const stamp = zuluStamp();
+  let p={id:crypto.randomUUID(), type, lat, lon, time:stamp.iso, zuluDate:stamp.zuluDate, zuluTime:stamp.zuluTime, notes:$('notes').value.trim(), ...extra};
+  p.time = p.time || stamp.iso;
+  p.zuluDate = p.zuluDate || stamp.zuluDate;
+  p.zuluTime = p.zuluTime || stamp.zuluTime;
+  if(type==='D'){
+    p.bearing=degNorm(Number(extra.bearing ?? $('bearing').value));
+    if(!Number.isFinite(p.bearing)){alert('Directional method requires a bearing to the ELT.');return null;}
+  }else{
+    delete p.bearing;
+  }
+  return p;
+}
+function addPoint(lat,lon, extra={}){
+  const p = buildPointRecord(lat, lon, extra);
+  if(!p) return;
+  points.push(p);
+  updateAll();
+}
 function clearEntry(){ ['latDmm','lonDmm','latDms','lonDms','bearing','notes'].forEach(id=>$(id).value=''); }
 function updateMethodUi(autoFill=false){ const m=$('method').value; $('bearingBox').style.display=m==='D'?'block':'none'; $('bearingLabel').textContent='Bearing to ELT'; if(autoFill) populatePointEntryDefaults(); }
-function renderTable(){ const tb=$('pointsTable').querySelector('tbody'); tb.innerHTML=''; for(const p of points){ const tr=document.createElement('tr'); const used=p.bearing; tr.innerHTML=`<td><span class="tag ${p.type.toLowerCase()}">${p.type}</span> ${typeName(p.type)}</td><td class="mono">${p.time}</td><td class="mono">${coordToDMM(p.lat,true)}</td><td class="mono">${coordToDMM(p.lon,false)}</td><td class="mono">${coordToDMS(p.lat,true)}</td><td class="mono">${coordToDMS(p.lon,false)}</td><td>${p.type==='C'?'--':fmtNum(p.bearing,1)}</td><td>${Number.isFinite(used)?fmtNum(used,1):'--'}</td><td>${p.notes||''}</td><td><button class="mini danger" data-del="${p.id}">Delete</button></td>`; tb.appendChild(tr); } tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{points=points.filter(p=>p.id!==b.dataset.del);updateAll();}); }
+function editPoint(id){
+  const p = points.find(x=>x.id===id);
+  if(!p) return;
+  $('method').value = p.type;
+  updateMethodUi(false);
+  $('latDmm').value = coordToDMM(p.lat,true);
+  $('lonDmm').value = coordToDMM(p.lon,false);
+  $('latDms').value = coordToDMS(p.lat,true);
+  $('lonDms').value = coordToDMS(p.lon,false);
+  $('bearing').value = p.type==='D' && Number.isFinite(p.bearing) ? fmtNum(p.bearing,1) : '';
+  $('notes').value = p.notes || '';
+  points = points.filter(x=>x.id!==id);
+  updateAll();
+  $('latDmm').focus();
+}
+function renderTable(){
+  const tb=$('pointsTable').querySelector('tbody');
+  tb.innerHTML='';
+  for(const p of points){
+    const tr=document.createElement('tr');
+    const used=p.bearing;
+    tr.innerHTML=`<td><span class="tag ${p.type.toLowerCase()}">${p.type}</span> ${typeName(p.type)}</td><td class="mono">${escapeHtml(fmtZulu(p))}</td><td class="mono">${coordToDMM(p.lat,true)}</td><td class="mono">${coordToDMM(p.lon,false)}</td><td class="mono">${coordToDMS(p.lat,true)}</td><td class="mono">${coordToDMS(p.lon,false)}</td><td>${p.type==='C'?'--':fmtNum(p.bearing,1)}</td><td>${Number.isFinite(used)?fmtNum(used,1):'--'}</td><td>${escapeHtml(p.notes||'')}</td><td><button class="mini" data-edit="${p.id}">Edit</button> <button class="mini danger" data-del="${p.id}">Delete</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editPoint(b.dataset.edit));
+  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{points=points.filter(p=>p.id!==b.dataset.del);updateAll();});
+}
 
 function currentHeadingFromPosition(pos){
   if(pos && pos.coords && Number.isFinite(pos.coords.heading)) return degNorm(pos.coords.heading);
@@ -136,11 +189,20 @@ function currentHeadingFromPosition(pos){
   if(Number.isFinite(deviceHeading)) return degNorm(deviceHeading);
   return NaN;
 }
-function updateNotesWithCapGrid(label){
+function capGridNoteText(label){
   const gridText = label && label !== '--' ? label : 'Lookup pending';
-  const defaultNote = `CAP Grid: ${gridText}`;
-  const current = $('notes').value.trim();
-  if(!current || current.startsWith('CAP Grid:')) $('notes').value = defaultNote;
+  return `CAP Grid: ${gridText}`;
+}
+function mergeCapGridIntoNote(note, label){
+  const gridNote = capGridNoteText(label);
+  const current = String(note || '').trim();
+  if(!current) return gridNote;
+  if(/^CAP Grid:/i.test(current)) return gridNote;
+  if(/CAP Grid:/i.test(current)) return current.replace(/CAP Grid:\s*[^;|,]+/i, gridNote);
+  return `${gridNote}; ${current}`;
+}
+function updateNotesWithCapGrid(label){
+  $('notes').value = mergeCapGridIntoNote($('notes').value, label);
 }
 function setPointEntryDefaults(lat, lon, heading, capGridLabel){
   if(Number.isFinite(lat) && Number.isFinite(lon)){
@@ -289,7 +351,7 @@ function updateCards(result){ if(elt){ $('eltStatus').textContent=`${elt.method}
 }
 function updateAll(){ const result=computeElt(); renderTable(); updateCards(result); drawMap(result); updateCapGridLookups(); if(elt && !liveWatch) startLiveTracking(false); }
 
-function csvExport(){ const rows=[['RecordType','Timestamp','Latitude_DMM','Longitude_DMM','Latitude_DMS','Longitude_DMS','Latitude_DD','Longitude_DD','Bearing_To_ELT','ELT_Bearing_Used','Method','Notes']]; for(const p of points){ rows.push([typeName(p.type),p.time,coordToDMM(p.lat,true),coordToDMM(p.lon,false),coordToDMS(p.lat,true),coordToDMS(p.lon,false),p.lat,p.lon,p.bearing,p.bearing,p.type,p.notes||'']); } if(elt) rows.push(['Estimated ELT',nowIso(),coordToDMM(elt.lat,true),coordToDMM(elt.lon,false),coordToDMS(elt.lat,true),coordToDMS(elt.lon,false),elt.lat,elt.lon,'','',elt.method,`Quality=${elt.quality}; RMS_ft=${elt.rms}; Radius_ft=${elt.radius}; Lines=${elt.linesUsed}`]); if(live) rows.push(['Live Team/Aircraft',nowIso(),coordToDMM(live.lat,true),coordToDMM(live.lon,false),coordToDMS(live.lat,true),coordToDMS(live.lon,false),live.lat,live.lon,Number.isFinite(live.heading)?live.heading:'','','T','Current live tracking point; headingSource='+(live.headingSource||'none')]); const blob=new Blob([rows.map(r=>r.map(escapeCsv).join(',')).join('\n')],{type:'text/csv'}); const dl=document.createElement('a'); dl.href=URL.createObjectURL(blob); dl.download='elt_finder_log_'+new Date().toISOString().replace(/[:.]/g,'')+'.csv'; dl.click(); URL.revokeObjectURL(dl.href); }
+function csvExport(){ const rows=[['RecordType','Zulu_Date','Zulu_Time','Timestamp_ISO','Latitude_DMM','Longitude_DMM','Latitude_DMS','Longitude_DMS','Latitude_DD','Longitude_DD','Bearing_To_ELT','ELT_Bearing_Used','Method','Notes']]; for(const p of points){ rows.push([typeName(p.type),p.zuluDate||'',p.zuluTime||'',p.time||'',coordToDMM(p.lat,true),coordToDMM(p.lon,false),coordToDMS(p.lat,true),coordToDMS(p.lon,false),p.lat,p.lon,p.bearing,p.bearing,p.type,p.notes||'']); } if(elt){ const stamp=zuluStamp(); rows.push(['Estimated ELT',stamp.zuluDate,stamp.zuluTime,stamp.iso,coordToDMM(elt.lat,true),coordToDMM(elt.lon,false),coordToDMS(elt.lat,true),coordToDMS(elt.lon,false),elt.lat,elt.lon,'','',elt.method,`Quality=${elt.quality}; RMS_ft=${elt.rms}; Radius_ft=${elt.radius}; Lines=${elt.linesUsed}`]); } if(live){ const stamp=zuluStamp(); rows.push(['Live Team/Aircraft',stamp.zuluDate,stamp.zuluTime,stamp.iso,coordToDMM(live.lat,true),coordToDMM(live.lon,false),coordToDMS(live.lat,true),coordToDMS(live.lon,false),live.lat,live.lon,Number.isFinite(live.heading)?live.heading:'','','T','Current live tracking point; headingSource='+(live.headingSource||'none')]); } const blob=new Blob([rows.map(r=>r.map(escapeCsv).join(',')).join('\n')],{type:'text/csv'}); const dl=document.createElement('a'); dl.href=URL.createObjectURL(blob); dl.download='elt_finder_log_'+new Date().toISOString().replace(/[:.]/g,'')+'.csv'; dl.click(); URL.revokeObjectURL(dl.href); }
 async function startLiveTracking(userRequested=true){
   if(userRequested) enableCompass();
   if(!navigator.geolocation){ liveError='Geolocation is not available in this browser.'; updateAll(); if(userRequested) alert(liveError); return; }
@@ -311,7 +373,19 @@ async function startLiveTracking(userRequested=true){
   setLiveButton();
 }
 function stopLiveTracking(){ if(liveWatch){navigator.geolocation.clearWatch(liveWatch); liveWatch=null;} setLiveButton(); updateAll(); }
-function recordGpsOnce(){ if(!navigator.geolocation){alert('Geolocation is not available.'); return;} navigator.geolocation.getCurrentPosition(pos=>{ $('latDmm').value=coordToDMM(pos.coords.latitude,true); $('lonDmm').value=coordToDMM(pos.coords.longitude,false); syncFromDmm(); addPoint(pos.coords.latitude,pos.coords.longitude); }, err=>alert('GPS error: '+err.message), {enableHighAccuracy:true, maximumAge:5000, timeout:20000}); }
+function recordGpsOnce(){
+  if(!navigator.geolocation){alert('Geolocation is not available.'); return;}
+  enableCompass();
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    const heading=currentHeadingFromPosition(pos);
+    const label=await lookupCapGridLabelOnly({lat, lon});
+    $('method').value='C';
+    updateMethodUi(false);
+    setPointEntryDefaults(lat, lon, heading, label);
+    addPoint(lat, lon, {type:'C', notes:mergeCapGridIntoNote('', label)});
+  }, err=>alert('GPS error: '+err.message), {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
+}
 
 require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layers/FeatureLayer','esri/Graphic','esri/geometry/Point','esri/geometry/Polyline','esri/geometry/Circle','esri/geometry/Extent','esri/geometry/support/webMercatorUtils'], function(Map,MapView,GraphicsLayer,FeatureLayer,Graphic,Point,Polyline,Circle,Extent,webMercatorUtils){
   
@@ -349,7 +423,16 @@ require(['esri/Map','esri/views/MapView','esri/layers/GraphicsLayer','esri/layer
   const map=new Map({basemap:'hybrid', layers:[capGridLayer, capSubGridLayer, capHighlightLayer, graphicsLayer]});
   view=new MapView({container:'viewDiv', map, center:[-79,33.68], zoom:10, constraints:{snapToZoom:false}});
   try{ countyLayer=new FeatureLayer({url:'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized_Boundaries/FeatureServer/0', title:'Counties', opacity:.85, outFields:['NAME','STATE_NAME'], labelingInfo:[{labelExpressionInfo:{expression:'$feature.NAME'}, symbol:{type:'text',color:'white',haloColor:'black',haloSize:1,font:{size:10,weight:'bold'}}}], renderer:{type:'simple',symbol:{type:'simple-fill',color:[0,0,0,0],outline:{color:[255,255,255,.55],width:1}}}}); map.add(countyLayer, 0); }catch(e){console.warn(e);}
-  view.on('click', ev=>{ if(!$('mapClick').checked) return; const mp=view.toMap({x:ev.x,y:ev.y}); if(mp) addPoint(mp.latitude, mp.longitude); });
+  view.on('click', async ev=>{
+    if(!$('mapClick').checked) return;
+    const mp=view.toMap({x:ev.x,y:ev.y});
+    if(!mp) return;
+    const lat=mp.latitude, lon=mp.longitude;
+    const label=await lookupCapGridLabelOnly({lat, lon});
+    const type=$('method').value;
+    const note=mergeCapGridIntoNote($('notes').value, label);
+    addPoint(lat, lon, {type, notes:note});
+  });
   window.__drawMap = function(result){ graphicsLayer.removeAll(); const extPts=[]; const ref=result.ref; const addG=(g)=>graphicsLayer.add(g); const pt=(lon,lat)=>new Point({longitude:lon,latitude:lat}); const marker=(color,shape='circle',size=12)=>({type:'simple-marker',style:shape,color, size, outline:{color:[0,0,0,.9],width:1}}); const text=(txt,color,dy=-18)=>({type:'text',text:txt,color,haloColor:'black',haloSize:1.4,yoffset:dy,font:{size:14,weight:'bold'}}); const lineSym=(color,width=2,dash=null)=>({type:'simple-line',color,width,style:dash||'solid'});
     for(const p of points){ extPts.push([p.lon,p.lat]); const color=p.type==='C'?[47,140,255,1]:[255,210,63,1]; addG(new Graphic({geometry:pt(p.lon,p.lat), symbol:marker(color,p.type==='C'?'circle':'diamond'), popupTemplate:{title:typeName(p.type),content:`${coordToDMM(p.lat,true)}, ${coordToDMM(p.lon,false)}<br>${p.time}`}})); addG(new Graphic({geometry:pt(p.lon,p.lat), symbol:text(p.type, p.type==='C'?'#2f8cff':'#ffd23f')})); }
     const cps=points.filter(p=>p.type==='C'); for(let i=0;i<cps.length;i++) for(let j=i+1;j<cps.length;j++){ addG(new Graphic({geometry:new Polyline({paths:[[[cps[i].lon,cps[i].lat],[cps[j].lon,cps[j].lat]]], spatialReference:{wkid:4326}}), symbol:lineSym([47,140,255,1],2)})); }
