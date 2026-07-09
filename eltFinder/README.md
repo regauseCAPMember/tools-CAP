@@ -1,21 +1,33 @@
-# ELT Finder with Official CAP Grid
+# ELT Finder - CAP Grid / Zulu / Edit Build
 
-This folder is designed to be placed in a GitHub repository subfolder, for example:
+This folder contains the updated GitHub-ready ELT Finder project.
+
+## Files
+
+- `index.html`
+- `css/style.css`
+- `js/app.js`
+
+## Changes in this build
+
+- Removed the Wing Null workflow.
+- Map-clicked points now look up the official CAP Grid at the clicked location and add it to Notes.
+- Every saved point records Zulu date and Zulu time.
+- The Recorded Points table displays the Zulu date/time for each saved point.
+- Added an Edit button for recorded points.
+  - Edit loads the point back into Point Entry.
+  - The original row is removed.
+  - The user can correct coordinates, bearing, or notes and add it back.
+- Record GPS Coordinate automatically records a Circumcenter point.
+- Record GPS Coordinate also populates current GPS fields and CAP Grid note.
+
+## GitHub use
+
+Copy this folder into the desired GitHub subfolder. Keep the relative structure intact:
 
 ```text
-tools-CAP/elt-finder-cap-grid/
-  index.html
-  css/style.css
-  js/app.js
+index.html
+css/style.css
+js/app.js
 ```
 
-Open `index.html` directly or publish the folder with GitHub Pages.
-
-## CAP Grid source
-
-The map uses the official Civil Air Patrol Search and Rescue SAR Grids ArcGIS FeatureServer:
-
-- Grids layer: `/FeatureServer/0`
-- Subgrids layer: `/FeatureServer/1`
-
-The application queries the subgrid layer first. If no subgrid is found, it falls back to the main grid layer.
