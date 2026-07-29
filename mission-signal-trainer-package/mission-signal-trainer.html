@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d2741">
+  <title>Ground–Air Signal Trainer</title>
+  <style>
+    :root {
+      --navy: #0d2741;
+      --navy-2: #183b5c;
+      --paper: #f5f1e8;
+      --cream: #fffdf7;
+      --orange: #e96f32;
+      --yellow: #f3bf4d;
+      --ink: #15202b;
+      --muted: #65717c;
+      --line: #d8d1c4;
+      --good: #247451;
+      --bad: #a93d37;
+      --shadow: 0 18px 50px rgba(13,39,65,.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 80% 0%, rgba(243,191,77,.20), transparent 28rem),
+        linear-gradient(180deg, #edf3f5 0, var(--paper) 28rem);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    header { color: white; background: var(--navy); position: relative; overflow: hidden; }
+    header::after {
+      content: ""; position: absolute; width: 420px; height: 420px; border: 1px solid rgba(255,255,255,.14);
+      border-radius: 50%; right: -150px; top: -220px; box-shadow: 0 0 0 70px rgba(255,255,255,.035), 0 0 0 140px rgba(255,255,255,.025);
+    }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; position: relative; z-index: 1; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .04em; }
+    .roundel { width: 38px; height: 38px; border: 2px solid var(--yellow); border-radius: 50%; display: grid; place-items: center; color: var(--yellow); }
+    .status { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: #a9c4da; }
+    .hero { display: grid; grid-template-columns: 1.25fr .75fr; gap: 38px; align-items: end; padding: 52px 0 56px; position: relative; z-index: 1; }
+    .kicker { color: var(--yellow); font-weight: 800; text-transform: uppercase; letter-spacing: .16em; font-size: .76rem; }
+    h1 { margin: 12px 0 14px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.5rem, 7vw, 5.4rem); line-height: .92; max-width: 700px; letter-spacing: -.045em; }
+    .lede { color: #c8d6e1; max-width: 650px; font-size: 1.05rem; line-height: 1.65; margin: 0; }
+    .readout { border-left: 1px solid #42617b; padding-left: 28px; display: grid; gap: 17px; }
+    .readout b { color: var(--yellow); font-size: 1.55rem; display: block; }
+    .readout span { color: #a9c4da; font-size: .83rem; text-transform: uppercase; letter-spacing: .08em; }
+    main { padding: 34px 0 64px; }
+    .tabs { display: flex; gap: 8px; background: rgba(255,255,255,.68); padding: 7px; border-radius: 15px; width: fit-content; box-shadow: 0 8px 26px rgba(13,39,65,.08); margin-bottom: 22px; }
+    .tab { border: 0; background: transparent; color: var(--muted); padding: 12px 20px; border-radius: 10px; font-weight: 800; }
+    .tab.active { color: white; background: var(--navy); }
+    .panel { display: none; }
+    .panel.active { display: block; animation: rise .25s ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
+    .card { background: rgba(255,253,247,.94); border: 1px solid rgba(216,209,196,.85); border-radius: 24px; box-shadow: var(--shadow); }
+    .quiz-grid, .reference-grid { display: grid; grid-template-columns: .95fr 1.05fr; min-height: 500px; overflow: hidden; }
+    .control { padding: clamp(24px, 5vw, 48px); }
+    .eyebrow { margin: 0 0 8px; text-transform: uppercase; color: var(--orange); font-weight: 900; font-size: .72rem; letter-spacing: .14em; }
+    h2 { margin: 0 0 10px; font-family: Georgia, serif; font-size: clamp(1.65rem, 4vw, 2.65rem); line-height: 1.05; }
+    .sub { margin: 0 0 28px; color: var(--muted); line-height: 1.55; }
+    label { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 900; color: #4c5964; margin-bottom: 8px; }
+    select { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: white; padding: 14px 42px 14px 14px; color: var(--ink); }
+    .field + .field { margin-top: 18px; }
+    .primary, .secondary { border: 0; border-radius: 12px; padding: 14px 18px; font-weight: 900; }
+    .primary { background: var(--orange); color: white; box-shadow: 0 9px 18px rgba(233,111,50,.24); }
+    .secondary { background: #e6edf1; color: var(--navy); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .stage { background: #16334e; color: white; min-height: 470px; padding: clamp(24px, 5vw, 48px); display: flex; flex-direction: column; justify-content: space-between; position: relative; }
+    .stage::before { content: ""; position: absolute; inset: 18px; border: 1px solid rgba(255,255,255,.1); border-radius: 17px; pointer-events: none; }
+    .counter { position: relative; z-index: 1; font-size: .8rem; color: #adc0d0; text-transform: uppercase; letter-spacing: .1em; }
+    .signal-wrap { position: relative; z-index: 1; text-align: center; }
+    .signal {
+      min-height: 220px; display: grid; place-items: center; font-family: "Arial Black", Impact, sans-serif;
+      font-size: clamp(7rem, 20vw, 12rem); line-height: .8; color: var(--yellow); letter-spacing: -.08em;
+      text-shadow: 0 7px 0 rgba(0,0,0,.18);
+    }
+    .signal img {
+      display: block;
+      max-width: min(100%, 430px);
+      max-height: 245px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      padding: 12px;
+      border-radius: 12px;
+      background: white;
+      filter: drop-shadow(0 9px 10px rgba(0,0,0,.18));
+    }
+    .signal.body { font-size: clamp(5rem, 15vw, 9rem); }
+    .message { color: #dfe8ef; font-size: 1.12rem; font-weight: 750; min-height: 1.5em; }
+    .hint { color: #91a9bb; font-size: .85rem; line-height: 1.5; margin-top: 8px; }
+    .answers { display: grid; gap: 10px; position: relative; z-index: 1; margin-top: 22px; }
+    .answer { border: 1px solid #4b657a; background: #21435f; color: white; border-radius: 11px; padding: 13px 15px; text-align: left; }
+    .answer:hover, .answer:focus-visible { background: #2c5574; outline: 2px solid var(--yellow); outline-offset: 2px; }
+    .answer.correct { background: var(--good); border-color: #56a980; }
+    .answer.wrong { background: var(--bad); border-color: #d07972; }
+    .feedback { min-height: 1.6em; margin-top: 14px; font-weight: 800; }
+    .scoreline { display: flex; gap: 16px; margin: 24px 0; }
+    .scorebox { flex: 1; padding: 16px; border-radius: 14px; background: #edf1f2; }
+    .scorebox strong { display: block; font-size: 1.65rem; color: var(--navy); }
+    .reference-stage .signal { min-height: 285px; }
+    .training-note { margin-top: 22px; padding: 18px 20px; border-left: 4px solid var(--yellow); background: #fff8df; color: #594b2e; line-height: 1.55; border-radius: 0 12px 12px 0; font-size: .9rem; }
+    .legend { margin-top: 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .legend-item { background: rgba(255,255,255,.62); border: 1px solid var(--line); padding: 16px; border-radius: 14px; }
+    .legend-item b { color: var(--navy); display: block; margin-bottom: 5px; }
+    .legend-item span { color: var(--muted); font-size: .85rem; line-height: 1.4; }
+    footer { border-top: 1px solid var(--line); padding: 28px 0 42px; color: var(--muted); font-size: .85rem; line-height: 1.55; }
+    footer a { color: var(--navy); }
+    @media (max-width: 800px) {
+      .hero { grid-template-columns: 1fr; }
+      .readout { grid-template-columns: repeat(2,1fr); border-left: 0; border-top: 1px solid #42617b; padding: 20px 0 0; }
+      .quiz-grid, .reference-grid { grid-template-columns: 1fr; }
+      .stage { min-height: 520px; }
+      .legend { grid-template-columns: 1fr; }
+      .status { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <div class="topbar">
+        <div class="brand"><span class="roundel">✦</span> SIGNAL / AIR</div>
+        <div class="status">Offline training aid • v1.0</div>
+      </div>
+      <div class="hero">
+        <div>
+          <div class="kicker">Mission aircrew study lab</div>
+          <h1>Read the ground.<br>Know the message.</h1>
+          <p class="lede">Practice the five visual-signal families in the Mission Aircrew School Inflight Guide: marshalling, laid-out symbols, body signals, Panel/Paulin signals, and aircraft-to-ground signals.</p>
+        </div>
+        <div class="readout">
+          <div><b>5</b><span>Signal families</span></div>
+          <div><b>80+</b><span>Messages to practice</span></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="tabs" role="tablist" aria-label="Training mode">
+      <button class="tab active" role="tab" aria-selected="true" data-panel="quiz">Test me</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="reference">Build a signal</button>
+    </div>
+
+    <section class="panel active" id="quiz" role="tabpanel">
+      <div class="card quiz-grid">
+        <div class="control">
+          <p class="eyebrow">Recognition drill</p>
+          <h2>What does the signal mean?</h2>
+          <p class="sub">Choose a signal set, then identify randomly presented signals. Your score stays on this device.</p>
+          <div class="field">
+            <label for="quiz-set">Signal set</label>
+            <select id="quiz-set">
+              <option value="marshalling">Marshalling signals</option>
+              <option value="ground">Laid-out surface symbols</option>
+              <option value="body">Surface-to-air body signals</option>
+              <option value="panel">Panel / Paulin signals</option>
+              <option value="air">Air-to-ground visual signals</option>
+              <option value="all">Mixed challenge</option>
+            </select>
+          </div>
+          <div class="scoreline">
+            <div class="scorebox"><strong id="correct-count">0</strong>Correct</div>
+            <div class="scorebox"><strong id="attempt-count">0</strong>Attempts</div>
+          </div>
+          <div class="actions">
+            <button class="primary" id="new-question">New question</button>
+            <button class="secondary" id="reset-score">Reset score</button>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="counter" id="question-type">Ground symbol</div>
+          <div class="signal-wrap">
+            <div class="signal" id="quiz-signal" aria-label="Signal"></div>
+            <div class="message" id="quiz-prompt">Choose the correct meaning</div>
+          </div>
+          <div>
+            <div class="answers" id="answers"></div>
+            <div class="feedback" id="feedback" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="reference" role="tabpanel">
+      <div class="card reference-grid">
+        <div class="control">
+          <p class="eyebrow">Message composer</p>
+          <h2>Choose the message to send.</h2>
+          <p class="sub">The display shows the symbol or body position an aircraft should recognize.</p>
+          <div class="field">
+            <label for="reference-set">Method</label>
+            <select id="reference-set">
+              <option value="marshalling">Marshalling signal</option>
+              <option value="ground">Laid-out surface symbol</option>
+              <option value="body">Surface-to-air body signal</option>
+              <option value="panel">Panel / Paulin signal</option>
+              <option value="air">Air-to-ground visual signal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="reference-message">Message</label>
+            <select id="reference-message"></select>
+          </div>
+          <div class="training-note"><strong>Operational note:</strong> Radio is the primary method when available. Make ground symbols large, angular, and high-contrast. Repeat body motions slowly in a clear area until acknowledged.</div>
+        </div>
+        <div class="stage reference-stage">
+          <div class="counter" id="reference-type">Laid-out ground symbol</div>
+          <div class="signal-wrap">
+            <div class="signal" id="reference-signal"></div>
+            <div class="message" id="reference-title"></div>
+            <div class="hint" id="reference-hint"></div>
+          </div>
+          <div class="hint">View from aircraft • Keep the signal clear of visual clutter</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="legend">
+      <div class="legend-item"><b>Use the right family</b><span>A marshalling gesture, laid-out code, body signal, Paulin fold, and aircraft maneuver are different systems.</span></div>
+      <div class="legend-item"><b>Read both directions</b><span>Quiz mode mixes “signal to meaning” recognition across any one family or all five.</span></div>
+      <div class="legend-item"><b>Guide controls</b><span>This trainer follows the July 2021 Inflight Guide. Current CAP guidance, instructors, and mission briefings control.</span></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="shell">Training content transcribed from the Civil Air Patrol Mission Aircrew School Inflight Guide, July 2021, pp. 16–17 and 57–60. Independent study aid; not an official CAP product.</div>
+  </footer>
+
+  <script src="signal-data.js"></script>
+  <script>
+    const signals = window.SIGNAL_DATA;
+
+    const setNames = {
+      marshalling:"Marshalling signal",
+      ground:"Laid-out surface symbol",
+      body:"Surface-to-air body signal",
+      panel:"Panel / Paulin signal",
+      air:"Air-to-ground visual signal"
+    };
+
+    const $ = (id) => document.getElementById(id);
+    let current = null;
+    let locked = false;
+    let score = JSON.parse(localStorage.getItem("signalTrainerScore") || '{"correct":0,"attempts":0}');
+
+    function saveScore() {
+      localStorage.setItem("signalTrainerScore", JSON.stringify(score));
+      $("correct-count").textContent = score.correct;
+      $("attempt-count").textContent = score.attempts;
+    }
+
+    function shuffle(items) {
+      return [...items].sort(() => Math.random() - .5);
+    }
+
+    function showSignal(element, record, revealMeaning = false) {
+      element.className = "signal" + (record.set === "body" ? " body" : "");
+      element.innerHTML = "";
+      const image = document.createElement("img");
+      image.src = record.image;
+      image.alt = revealMeaning ? record.message : `${setNames[record.set]} from source page ${record.sourcePage}`;
+      element.appendChild(image);
+    }
+
+    function nextQuestion() {
+      locked = false;
+      $("feedback").textContent = "";
+      const set = $("quiz-set").value;
+      const pool = set === "all" ? signals : signals.filter(s => s.set === set);
+      let candidate = pool[Math.floor(Math.random() * pool.length)];
+      if (pool.length > 1 && current && candidate.message === current.message && candidate.set === current.set) {
+        candidate = pool[(pool.indexOf(candidate) + 1) % pool.length];
+      }
+      current = candidate;
+      showSignal($("quiz-signal"), current);
+      $("question-type").textContent = setNames[current.set];
+      const distractors = shuffle(signals.filter(s => s !== current && s.message !== current.message)).slice(0, 3);
+      const choices = shuffle([current, ...distractors]);
+      $("answers").innerHTML = "";
+      choices.forEach(choice => {
+        const button = document.createElement("button");
+        button.className = "answer";
+        button.textContent = choice.message;
+        button.addEventListener("click", () => grade(button, choice));
+        $("answers").appendChild(button);
+      });
+    }
+
+    function grade(button, choice) {
+      if (locked) return;
+      locked = true;
+      score.attempts++;
+      const correct = choice.message === current.message;
+      if (correct) {
+        score.correct++;
+        button.classList.add("correct");
+        $("feedback").textContent = "Correct — " + current.hint + ` Source: guide p. ${current.sourcePage}.`;
+      } else {
+        button.classList.add("wrong");
+        [...$("answers").children].find(b => b.textContent === current.message)?.classList.add("correct");
+        $("feedback").textContent = "Not quite. " + current.hint + ` Source: guide p. ${current.sourcePage}.`;
+      }
+      saveScore();
+    }
+
+    function populateReference() {
+      const set = $("reference-set").value;
+      const pool = signals.filter(s => s.set === set);
+      $("reference-message").innerHTML = pool.map((s, i) => `<option value="${i}">${s.message}</option>`).join("");
+      updateReference();
+    }
+
+    function updateReference() {
+      const set = $("reference-set").value;
+      const pool = signals.filter(s => s.set === set);
+      const chosen = pool[Number($("reference-message").value) || 0];
+      $("reference-type").textContent = setNames[set];
+      showSignal($("reference-signal"), chosen, true);
+      $("reference-title").textContent = chosen.message;
+      $("reference-hint").textContent = `${chosen.hint} Source: Inflight Guide p. ${chosen.sourcePage}. Image: ${chosen.image.split("/").pop()}`;
+    }
+
+    document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => { t.classList.remove("active"); t.setAttribute("aria-selected","false"); });
+      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+      tab.classList.add("active");
+      tab.setAttribute("aria-selected","true");
+      $(tab.dataset.panel).classList.add("active");
+    }));
+    $("new-question").addEventListener("click", nextQuestion);
+    $("quiz-set").addEventListener("change", nextQuestion);
+    $("reset-score").addEventListener("click", () => { score = {correct:0, attempts:0}; saveScore(); nextQuestion(); });
+    $("reference-set").addEventListener("change", populateReference);
+    $("reference-message").addEventListener("change", updateReference);
+    saveScore();
+    nextQuestion();
+    populateReference();
+  </script>
+</body>
+</html>
