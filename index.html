@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mission support and training applications created for Civil Air Patrol members by SM Edward Gause, Myrtle Beach Grand Strand Composite Squadron.">
+  <meta name="theme-color" content="#071632">
+  <title>MAR-SC-114 Mission Applications</title>
+  <style>
+    :root {
+      --navy: #071632;
+      --navy-soft: #10264c;
+      --blue: #1592c4;
+      --sky: #ccecff;
+      --gold: #f4b72e;
+      --paper: #f5f8fb;
+      --white: #ffffff;
+      --ink: #14233c;
+      --muted: #5c6c80;
+      --line: rgba(7, 22, 50, .12);
+      --shadow: 0 20px 50px rgba(7, 22, 50, .12);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(21, 146, 196, .11), transparent 28rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: var(--white);
+      background: linear-gradient(132deg, #06132b 0%, #0b2450 65%, #084e72 100%);
+      border-bottom: 4px solid var(--gold);
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .22;
+      background-image: linear-gradient(120deg, transparent 48%, rgba(255,255,255,.12) 49%, transparent 50%);
+      background-size: 42px 42px;
+      pointer-events: none;
+    }
+    .hero-inner {
+      position: relative;
+      min-height: 530px;
+      padding: 64px 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(290px, .75fr);
+      gap: 60px;
+      align-items: center;
+    }
+    .eyebrow {
+      margin: 0 0 16px;
+      color: #ffcf5b;
+      font-size: .79rem;
+      font-weight: 800;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(3rem, 7vw, 5.9rem);
+      line-height: .97;
+      letter-spacing: -.045em;
+    }
+    .hero-copy {
+      max-width: 660px;
+      margin: 26px 0 32px;
+      color: rgba(255,255,255,.78);
+      font-size: clamp(1rem, 2vw, 1.18rem);
+    }
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 18px;
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px;
+      color: white;
+      font-weight: 750;
+      text-decoration: none;
+      transition: .2s ease;
+    }
+    .hero-link:hover { background: white; color: var(--navy); transform: translateY(-2px); }
+
+    .insignia {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 380px;
+    }
+    .insignia::before {
+      content: "";
+      position: absolute;
+      width: 330px;
+      aspect-ratio: 1;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 28px rgba(255,255,255,.035), 0 0 0 56px rgba(255,255,255,.025);
+    }
+    .squadron-patch {
+      position: relative;
+      width: min(325px, 80vw);
+      filter: drop-shadow(0 22px 28px rgba(0,0,0,.38));
+    }
+    .wing-patch {
+      position: absolute;
+      right: 0;
+      bottom: -8px;
+      width: 112px;
+      padding: 7px;
+      border: 2px solid var(--gold);
+      border-radius: 18px;
+      background: white;
+      filter: drop-shadow(0 12px 16px rgba(0,0,0,.28));
+    }
+
+    main { padding: 82px 0 72px; }
+    .section-head {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 460px);
+      gap: 40px;
+      align-items: end;
+      margin-bottom: 34px;
+    }
+    .section-head h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.2rem, 4vw, 3.4rem);
+      line-height: 1.08;
+      letter-spacing: -.03em;
+    }
+    .section-head p:last-child { margin: 0; color: var(--muted); }
+
+    .tools {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+    }
+    .tool {
+      display: flex;
+      flex-direction: column;
+      min-height: 360px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.9);
+      box-shadow: 0 9px 26px rgba(7,22,50,.06);
+      transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+    .tool:hover { transform: translateY(-5px); box-shadow: var(--shadow); border-color: rgba(21,146,196,.34); }
+    .tool-number {
+      display: inline-grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      margin-bottom: 34px;
+      border-radius: 14px;
+      color: var(--navy);
+      background: var(--sky);
+      font-family: Georgia, serif;
+      font-weight: 800;
+    }
+    .tool h3 { margin: 0 0 13px; font-size: 1.33rem; line-height: 1.23; }
+    .tool p { margin: 0; color: var(--muted); }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 11px;
+      margin-top: auto;
+      padding-top: 28px;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 10px 15px;
+      border-radius: 11px;
+      font-size: .91rem;
+      font-weight: 800;
+      text-decoration: none;
+      transition: .2s ease;
+    }
+    .button.primary { color: white; background: var(--navy); }
+    .button.secondary { border: 1px solid var(--line); background: white; }
+    .button:hover { transform: translateY(-2px); }
+    .button.primary:hover { background: var(--blue); }
+    .button.secondary:hover { border-color: var(--blue); color: #086b91; }
+
+    .repo {
+      margin-top: 28px;
+      padding: 28px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 30px;
+      color: white;
+      background: var(--navy);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .repo h3 { margin: 0 0 4px; font-size: 1.15rem; }
+    .repo p { margin: 0; color: rgba(255,255,255,.67); }
+    .repo .button { flex: 0 0 auto; color: var(--navy); background: var(--gold); }
+
+    footer { padding: 26px 0 42px; color: var(--muted); font-size: .9rem; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 24px; border-top: 1px solid var(--line); padding-top: 24px; }
+    .footer-inner p { margin: 0; }
+
+    a:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+
+    @media (max-width: 860px) {
+      .hero-inner { grid-template-columns: 1fr; text-align: center; gap: 30px; padding-top: 54px; }
+      .hero-copy { margin-inline: auto; }
+      .insignia { min-height: 320px; }
+      .wing-patch { right: 8%; }
+      .section-head { grid-template-columns: 1fr; gap: 16px; }
+      .tools { grid-template-columns: 1fr; }
+      .tool { min-height: 0; }
+    }
+    @media (max-width: 560px) {
+      .wrap { width: min(100% - 28px, 1120px); }
+      .hero-inner { min-height: auto; padding-bottom: 46px; }
+      .insignia { min-height: 285px; }
+      .insignia::before { width: 250px; }
+      .squadron-patch { width: 245px; }
+      .wing-patch { width: 88px; right: 0; }
+      main { padding-top: 58px; }
+      .repo, .footer-inner { align-items: flex-start; flex-direction: column; }
+      .repo .button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap hero-inner">
+      <div>
+        <p class="eyebrow">Civil Air Patrol · MAR-SC-114</p>
+        <h1>Mission-ready tools for the Grand Strand.</h1>
+        <p class="hero-copy">A focused collection of field support and training applications created for Civil Air Patrol members of the Myrtle Beach Grand Strand Composite Squadron.</p>
+        <a class="hero-link" href="#applications">Explore the applications <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="insignia" aria-label="Myrtle Beach Grand Strand Composite Squadron and South Carolina Wing insignia">
+        <img class="squadron-patch" src="assets/grand-strand-squadron-patch.png" alt="Myrtle Beach Grand Strand Composite Squadron patch">
+        <img class="wing-patch" src="assets/south-carolina-wing.png" alt="South Carolina Wing emblem">
+      </div>
+    </div>
+  </header>
+
+  <main id="applications">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Field &amp; training resources</p>
+          <h2>Applications built around the mission.</h2>
+        </div>
+        <p>Open any application directly in your browser. Each tool is designed to support a specific operational or training need.</p>
+      </div>
+
+      <section class="tools" aria-label="Available Civil Air Patrol applications">
+        <article class="tool">
+          <span class="tool-number" aria-hidden="true">01</span>
+          <h3>ELT Search &amp; Location Assistant</h3>
+          <p>Supports emergency locator transmitter searches using circumcenter calculations and directional-finding methods to help teams narrow a signal’s likely location.</p>
+          <div class="actions">
+            <a class="button primary" href="https://regausecapmember.github.io/tools-CAP/eltFinder/index.html">Launch tool <span aria-hidden="true">↗</span></a>
+          </div>
+        </article>
+
+        <article class="tool">
+          <span class="tool-number" aria-hidden="true">02</span>
+          <h3>Zulu Time &amp; Coordinate Clock</h3>
+          <p>Provides an at-a-glance Zulu time display together with CAP grid and latitude/longitude reference information for mission coordination and reporting.</p>
+          <div class="actions">
+            <a class="button primary" href="https://regausecapmember.github.io/tools-CAP/CAP_Zulu_Clock.html">Open clock <span aria-hidden="true">↗</span></a>
+          </div>
+        </article>
+
+        <article class="tool">
+          <span class="tool-number" aria-hidden="true">03</span>
+          <h3>Ground Team Signal Trainer</h3>
+          <p>An interactive study aid for practicing CAP hand signals, paulin signals, and other visual communication methods used during ground team operations.</p>
+          <div class="actions">
+            <a class="button primary" href="https://regausecapmember.github.io/tools-CAP/mission-signal-trainer-package/mission-signal-trainer.html">Start training <span aria-hidden="true">↗</span></a>
+          </div>
+        </article>
+      </section>
+
+      <aside class="repo">
+        <div>
+          <h3>Project source &amp; works in progress</h3>
+          <p>View the application code, follow development, and explore additional CAP tools.</p>
+        </div>
+        <a class="button" href="https://github.com/regauseCAPMember/tools-CAP/tree/main">View the GitHub repository <span aria-hidden="true">↗</span></a>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <p>Created by SM Edward Gause</p>
+      <p>Myrtle Beach Grand Strand Composite Squadron · MAR-SC-114</p>
+    </div>
+  </footer>
+</body>
+</html>
